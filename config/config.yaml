@@ -1,0 +1,66 @@
+# Public template config for X_Atlas Snakemake workflow.
+# Replace paths/values with your local dataset locations.
+
+datasets:
+  HCT116:
+    enabled: true
+    h5ad: data/HCT116_filtered_dual_guide_cells.h5ad
+    guide_calls_csv: data/HCT116_filtered_guide_calls_per_cell.csv.gz
+    pert_col: gene_target
+    control_label: Non-Targeting
+
+  HEK293T:
+    enabled: false
+    h5ad: data/HEK293T_filtered_dual_guide_cells.h5ad
+    guide_calls_csv: data/HEK293T_filtered_guide_calls_per_cell.csv.gz
+    pert_col: gene_target
+    control_label: Non-Targeting
+
+chunking:
+  perturbations_per_chunk: 128
+  min_cells_per_perturbation: 30
+  max_controls_per_chunk: 50000
+  csv_read_chunk_size: 300000
+
+mixscape:
+  pca_dims: 20
+  write_subset_h5ad: false
+  use_hvg_for_pca: false
+
+clustering:
+  n_clusters: 20
+
+postprocess:
+  min_selected_cells: 20
+  max_control_cells_for_de: 50000
+  n_top_de_genes: 200
+  random_seed: 0
+
+audit:
+  enabled: true
+  require_ready: true
+  require_raw_source: true
+
+methods:
+  bootstrap_install: true
+  mixscape:
+    enabled: true
+  mixscale:
+    enabled: false
+    min_cells_per_perturbation: 30
+    max_perturbations: 100
+    max_cells: 0
+    random_seed: 0
+  ps:
+    enabled: false
+    min_cells_per_perturbation: 30
+    max_perturbations: 100
+    max_cells: 0
+    random_seed: 0
+  comparison:
+    enabled: false
+
+results_dir: results/mixscape_pipeline
+conda_env: envs/preprocessing.yaml
+r_env: envs/r_mix_methods.yaml
+rscript_bin: Rscript

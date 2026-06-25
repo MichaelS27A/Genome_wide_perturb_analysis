@@ -1,0 +1,19 @@
+# Ultra-minimal environment - install pertpy last to avoid conflicts
+name: preprocessing_ultra_minimal
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - numpy
+    - pandas
+    - scipy
+    - scanpy
+    - anndata
+    - pertpy
+    - tqdm

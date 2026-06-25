@@ -1,0 +1,32 @@
+# Python/R cache
+__pycache__/
+*.py[cod]
+.Rhistory
+.RData
+
+# Snakemake runtime
+.snakemake/
+
+# Local envs / editor
+.venv/
+venv/
+.env
+.vscode/
+.idea/
+
+# Logs and cluster outputs
+*.log
+*.out
+*.err
+
+# Pipeline outputs and local data
+results/
+data/
+archive/
+workflow/archive/
+
+# Large binary inputs (keep external)
+*.h5ad
+*.h5
+*.zip
+*.gz

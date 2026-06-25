@@ -1,0 +1,3 @@
+dataset	enabled	h5ad	guide_calls_csv	pert_col	control_label
+HCT116	true	data/HCT116_filtered_dual_guide_cells.h5ad	data/HCT116_filtered_guide_calls_per_cell.csv.gz	gene_target	Non-Targeting
+HEK293T	false	data/HEK293T_filtered_dual_guide_cells.h5ad	data/HEK293T_filtered_guide_calls_per_cell.csv.gz	gene_target	Non-Targeting

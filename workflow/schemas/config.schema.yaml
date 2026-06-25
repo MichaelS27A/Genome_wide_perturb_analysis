@@ -1,0 +1,74 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: X_Atlas Mixscape/Mixscale/PS pipeline config
+type: object
+required:
+  - datasets
+  - results_dir
+  - conda_env
+properties:
+  datasets:
+    type: object
+    minProperties: 1
+    additionalProperties:
+      type: object
+      additionalProperties: true
+      properties:
+        enabled:
+          type: boolean
+        h5ad:
+          type: string
+        guide_calls_csv:
+          type: string
+        pert_col:
+          type: string
+        control_label:
+          type: string
+  chunking:
+    type: object
+    additionalProperties: true
+  mixscape:
+    type: object
+    additionalProperties: true
+  clustering:
+    type: object
+    additionalProperties: true
+  postprocess:
+    type: object
+    additionalProperties: true
+  audit:
+    type: object
+    additionalProperties: true
+    properties:
+      enabled:
+        type: boolean
+      require_ready:
+        type: boolean
+      require_raw_source:
+        type: boolean
+  methods:
+    type: object
+    additionalProperties: true
+    properties:
+      bootstrap_install:
+        type: boolean
+      mixscape:
+        type: object
+        additionalProperties: true
+      mixscale:
+        type: object
+        additionalProperties: true
+      ps:
+        type: object
+        additionalProperties: true
+      comparison:
+        type: object
+        additionalProperties: true
+  results_dir:
+    type: string
+  conda_env:
+    type: string
+  r_env:
+    type: string
+  rscript_bin:
+    type: string
+additionalProperties: true

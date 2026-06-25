@@ -1,0 +1,18 @@
+name: xatlas_r_mix_methods
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - r-base=4.3
+  - r-optparse
+  - r-jsonlite
+  - r-matrix
+  - r-seurat
+  - r-reticulate
+  - r-devtools
+  - pip
+  - python=3.10
+  - pip:
+      - anndata
+      - scipy
