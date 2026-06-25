@@ -371,7 +371,7 @@ def parse_dataset_args(items: list[str]) -> list[DatasetSpec]:
     specs: list[DatasetSpec] = []
     for item in items:
         if "=" not in item:
-            raise ValueError(f"Invalid --dataset '{item}'. Use NAME=/abs/path/file.h5ad")
+            raise ValueError(f"Invalid --dataset '{item}'. Use NAME=path/to/file.h5ad")
         name, path = item.split("=", 1)
         specs.append(DatasetSpec(name=name.strip(), h5ad=Path(path.strip())))
     return specs
@@ -384,7 +384,7 @@ def main() -> None:
         "--dataset",
         action="append",
         default=[],
-        help="Extra dataset spec NAME=/abs/path/file.h5ad (can repeat).",
+        help="Extra dataset spec NAME=path/to/file.h5ad (can repeat).",
     )
     ap.add_argument(
         "--use-defaults",

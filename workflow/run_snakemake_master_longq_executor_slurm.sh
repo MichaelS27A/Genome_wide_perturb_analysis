@@ -3,154 +3,98 @@
 #SBATCH --partition=shortq
 #SBATCH --qos=shortq
 #SBATCH --time=11:50:00
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
-#SBATCH --account=your_slurm_account
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=8G
+#SBATCH --account=lab_gsf
 #SBATCH --output=snakemake_master_slurmexec_%j.out
 #SBATCH --error=snakemake_master_slurmexec_%j.err
 
 set -euo pipefail
 
-# -----------------------------
-# User-tunable settings
-# -----------------------------
+# Master on current node (when run via sbatch) with child jobs submitted to SLURM.
+# Behavior is aligned with workflow/run_interactive_snakemake.sh.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Prefer the sbatch submit directory; fall back to script directory.
-WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$SCRIPT_DIR}}"
-SNAKEFILE="${SNAKEFILE:-workflow/Snakefile}"
-TARGET_RULE="${TARGET_RULE:-all}"
-JOBS="${JOBS:-400}"
-LOCAL_CORES="${LOCAL_CORES:-4}"
-LATENCY_WAIT="${LATENCY_WAIT:-120}"
-RESTART_TIMES="${RESTART_TIMES:-1}"
-SNAKEMAKE_CONDA_PREFIX="${SNAKEMAKE_CONDA_PREFIX:-$WORKDIR/.snakemake/conda}"
-CONFIGFILE="${CONFIGFILE:-}"
-
-# Cluster defaults for worker jobs submitted by Snakemake
-SLURM_PARTITION="${SLURM_PARTITION:-shortq}"
-SLURM_QOS="${SLURM_QOS:-$SLURM_PARTITION}"
-SLURM_ACCOUNT="${SLURM_ACCOUNT:-your_slurm_account}"
-
-# Conda setup
-CONDA_BASE="${CONDA_BASE:-$HOME/miniconda3}"
-CONDA_ENV="snakemake"
-
-LOG_DIR="${LOG_DIR:-$WORKDIR/snakemake_pipeline/.snakemake/slurm_logs}"
-mkdir -p "$LOG_DIR"
-
-echo "======================================================="
-echo "Snakemake SLURM-executor master started on $(hostname) at $(date)"
-echo "SLURM_JOB_ID=${SLURM_JOB_ID:-NA}"
-echo "WORKDIR=$WORKDIR"
-echo "SNAKEFILE=$SNAKEFILE"
-echo "TARGET_RULE=$TARGET_RULE"
-echo "JOBS=$JOBS LOCAL_CORES=$LOCAL_CORES"
-echo "SNAKEMAKE_CONDA_PREFIX=$SNAKEMAKE_CONDA_PREFIX"
-if [[ -n "$CONFIGFILE" ]]; then
-  echo "CONFIGFILE=$CONFIGFILE"
-fi
-echo "SLURM_PARTITION=$SLURM_PARTITION SLURM_QOS=${SLURM_QOS:-<none>}"
-echo "======================================================="
-
+WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
 cd "$WORKDIR"
 
-# Keep threaded libs aligned with Slurm request.
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
-export VECLIB_MAXIMUM_THREADS=1
-export BLIS_NUM_THREADS=1
+# ---- settings (aligned with interactive launcher) ----
+SNAKEFILE="${SNAKEFILE:-workflow/Snakefile}"
+CONFIGFILE="${CONFIGFILE:-config/config.yaml}"
+TARGET_RULE="${TARGET_RULE:-all}"
 
-if [[ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
-  source "$CONDA_BASE/etc/profile.d/conda.sh"
-  conda activate "$CONDA_ENV"
-else
-  echo "ERROR: conda.sh not found at $CONDA_BASE/etc/profile.d/conda.sh"
+JOBS="${JOBS:-50}"
+LOCAL_CORES="${LOCAL_CORES:-1}"
+
+SLURM_PARTITION="${SLURM_PARTITION:-shortq}"
+SLURM_QOS="${SLURM_QOS:-shortq}"
+SLURM_ACCOUNT="${SLURM_ACCOUNT:-lab_gsf}"
+
+DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
+DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
+LATENCY_WAIT="${LATENCY_WAIT:-60}"
+
+CONDA_BASE="${CONDA_BASE:-$HOME/miniconda3}"
+CONDA_ENV="${CONDA_ENV:-snakemake}"
+# ------------------------------------------------------
+
+if [[ ! -f "$SNAKEFILE" ]]; then
+  echo "ERROR: missing $SNAKEFILE" >&2
   exit 1
 fi
+if [[ ! -f "$CONFIGFILE" ]]; then
+  echo "ERROR: missing $CONFIGFILE" >&2
+  exit 1
+fi
+if [[ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
+  echo "ERROR: conda.sh not found at $CONDA_BASE/etc/profile.d/conda.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV"
 
 if ! command -v snakemake >/dev/null 2>&1; then
-  echo "ERROR: snakemake not found in active environment ($CONDA_ENV)."
+  echo "ERROR: snakemake not found on PATH" >&2
+  exit 1
+fi
+if ! command -v sbatch >/dev/null 2>&1; then
+  echo "ERROR: sbatch not found on PATH" >&2
   exit 1
 fi
 
-echo "Snakemake version: $(snakemake --version)"
+echo "[step] unlock"
+snakemake -s "$SNAKEFILE" --configfile "$CONFIGFILE" --unlock || true
 
-CONFIG_ARGS=()
-if [[ -n "$CONFIGFILE" ]]; then
-  CONFIG_ARGS+=(--configfile "$CONFIGFILE")
+CMD=(
+  snakemake
+  -s "$SNAKEFILE"
+  --configfile "$CONFIGFILE"
+  --use-conda
+  --executor slurm
+  --jobs "$JOBS"
+  --local-cores "$LOCAL_CORES"
+  --default-resources
+  "slurm_partition=$SLURM_PARTITION"
+  "slurm_account=$SLURM_ACCOUNT"
+  "mem_mb=$DEFAULT_MEM_MB"
+  "runtime=$DEFAULT_RUNTIME_MIN"
+  "cpus_per_task=1"
+  --latency-wait "$LATENCY_WAIT"
+  --rerun-incomplete
+  --keep-going
+)
+
+if [[ -n "$SLURM_QOS" ]]; then
+  CMD+=(--slurm-qos "$SLURM_QOS")
+fi
+if [[ "$TARGET_RULE" != "all" ]]; then
+  CMD+=("$TARGET_RULE")
 fi
 
-echo "[step 0] Unlocking working directory"
-snakemake -s "$SNAKEFILE" "${CONFIG_ARGS[@]}" --unlock || true
+echo "Running master; child jobs go to SLURM."
+printf ' %q' "${CMD[@]}"
+echo
 
-# Preferred cluster submit wrapper for classic --cluster mode.
-CLUSTER_SUBMIT_SCRIPT="${CLUSTER_SUBMIT_SCRIPT:-$WORKDIR/workflow/cluster_submit.sh}"
-
-if snakemake --help 2>/dev/null | grep -q -- '--executor'; then
-  echo "Using Snakemake SLURM executor mode (--executor slurm)."
-  SNAKEMAKE_ARGS=(
-    -s "$SNAKEFILE"
-    --use-conda
-    --conda-prefix "$SNAKEMAKE_CONDA_PREFIX"
-    --executor slurm
-    --jobs "$JOBS"
-    --cores 1
-    --local-cores "$LOCAL_CORES"
-    --default-resources
-      "slurm_partition=$SLURM_PARTITION"
-      "slurm_account=$SLURM_ACCOUNT"
-      "cpus_per_task=1"
-      "mem_mb=8000"
-      "runtime=60"
-    --latency-wait "$LATENCY_WAIT"
-    --restart-times "$RESTART_TIMES"
-    --rerun-triggers mtime
-    --rerun-incomplete
-    --keep-going
-    "${CONFIG_ARGS[@]}"
-  )
-  if [[ -n "$SLURM_QOS" ]]; then
-    SNAKEMAKE_ARGS+=(--slurm-qos "$SLURM_QOS")
-  fi
-  if [[ "$TARGET_RULE" != "all" ]]; then
-    SNAKEMAKE_ARGS+=("$TARGET_RULE")
-  fi
-  snakemake "${SNAKEMAKE_ARGS[@]}"
-else
-  echo "Snakemake does not support --executor; falling back to --cluster sbatch mode."
-  if [[ -x "$CLUSTER_SUBMIT_SCRIPT" ]]; then
-    CLUSTER_CMD="bash $CLUSTER_SUBMIT_SCRIPT {resources.slurm_partition} {resources.mem_mb} {resources.runtime} {resources.gpu} {rule} {dependencies} {jobscript}"
-    echo "Using cluster submit wrapper: $CLUSTER_SUBMIT_SCRIPT"
-  else
-    CLUSTER_CMD="sbatch --partition={resources.slurm_partition} --account=$SLURM_ACCOUNT --cpus-per-task={threads} --mem={resources.mem_mb}M --time={resources.runtime} --output=$LOG_DIR/%x_%j.out --error=$LOG_DIR/%x_%j.err"
-    if [[ -n "$SLURM_QOS" ]]; then
-      CLUSTER_CMD="sbatch --partition={resources.slurm_partition} --qos=$SLURM_QOS --account=$SLURM_ACCOUNT --cpus-per-task={threads} --mem={resources.mem_mb}M --time={resources.runtime} --output=$LOG_DIR/%x_%j.out --error=$LOG_DIR/%x_%j.err"
-    fi
-    echo "cluster_submit.sh not found/executable; using inline sbatch command."
-  fi
-  SNAKEMAKE_ARGS=(
-    -s "$SNAKEFILE"
-    --use-conda
-    --conda-prefix "$SNAKEMAKE_CONDA_PREFIX"
-    --jobs "$JOBS"
-    --cores 1
-    --local-cores "$LOCAL_CORES"
-    --cluster "$CLUSTER_CMD"
-    --latency-wait "$LATENCY_WAIT"
-    --restart-times "$RESTART_TIMES"
-    --rerun-triggers mtime
-    --rerun-incomplete
-    --keep-going
-    "${CONFIG_ARGS[@]}"
-  )
-  if [[ "$TARGET_RULE" != "all" ]]; then
-    SNAKEMAKE_ARGS+=("$TARGET_RULE")
-  fi
-  snakemake "${SNAKEMAKE_ARGS[@]}"
-fi
-
-echo "======================================================="
-echo "Snakemake SLURM-executor master finished at $(date)"
-echo "======================================================="
+"${CMD[@]}"

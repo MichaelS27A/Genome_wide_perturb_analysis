@@ -21,7 +21,7 @@ checkpoint build_chunk_manifests:
         read_chunk=CFG["chunking"]["csv_read_chunk_size"]
     resources:
         mem_mb=64000,
-        runtime=700
+        runtime=660
     conda:
         CFG["conda_env"]
     shell:
@@ -57,7 +57,7 @@ rule run_chunk_mixscape:
         pca_gene_flag="--use-hvg-for-pca" if CFG["mixscape"].get("use_hvg_for_pca", False) else ""
     resources:
         mem_mb=180000,
-        runtime=2400
+        runtime=660
     conda:
         CFG["conda_env"]
     shell:
@@ -92,7 +92,7 @@ rule merge_dataset_results:
         n_clusters=CFG["clustering"]["n_clusters"]
     resources:
         mem_mb=32000,
-        runtime=360
+        runtime=660
     conda:
         CFG["conda_env"]
     shell:
@@ -127,7 +127,7 @@ rule postprocess_dataset:
         seed=CFG["postprocess"]["random_seed"]
     resources:
         mem_mb=180000,
-        runtime=2400
+        runtime=660
     conda:
         CFG["conda_env"]
     shell:

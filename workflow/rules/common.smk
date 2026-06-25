@@ -84,6 +84,24 @@ def deep_merge(a, b):
 
 
 CFG = deep_merge(DEFAULT_CONFIG, config)
+
+
+def resolve_from_root(pathlike):
+    p = Path(pathlike)
+    if p.is_absolute():
+        return p
+    return (ROOT_DIR / p).resolve()
+
+
+for _ds_name, _ds_cfg in CFG.get("datasets", {}).items():
+    if _ds_cfg.get("h5ad"):
+        _ds_cfg["h5ad"] = str(resolve_from_root(_ds_cfg["h5ad"]))
+    if _ds_cfg.get("guide_calls_csv"):
+        _ds_cfg["guide_calls_csv"] = str(resolve_from_root(_ds_cfg["guide_calls_csv"]))
+
+if CFG.get("results_dir"):
+    CFG["results_dir"] = str(resolve_from_root(CFG["results_dir"]))
+
 RESULTS_DIR = Path(CFG["results_dir"])
 DATASETS = [ds for ds, dcfg in CFG["datasets"].items() if dcfg.get("enabled", True)]
 

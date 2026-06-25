@@ -4,7 +4,6 @@ from snakemake.utils import min_version, validate
 
 min_version("8.20.1")
 
-configfile: "../config/config.yaml"
 WORKFLOW_DIR = Path(workflow.basedir).resolve()
 validate(config, str(WORKFLOW_DIR / "schemas" / "config.schema.yaml"))
 

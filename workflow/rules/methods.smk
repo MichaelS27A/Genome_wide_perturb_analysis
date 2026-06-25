@@ -33,7 +33,7 @@ rule run_mixscale_method:
         rscript=CFG.get("rscript_bin", "Rscript")
     resources:
         mem_mb=180000,
-        runtime=2400
+        runtime=660
     conda:
         CFG["r_env"]
     shell:
@@ -71,7 +71,7 @@ rule run_ps_method:
         rscript=CFG.get("rscript_bin", "Rscript")
     resources:
         mem_mb=180000,
-        runtime=2400
+        runtime=660
     conda:
         CFG["r_env"]
     shell:
