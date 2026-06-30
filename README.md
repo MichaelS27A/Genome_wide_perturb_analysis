@@ -1,4 +1,4 @@
-# X_Atlas Workflow Repo
+# Genome wide perturbation screen analysis with different methods
 
 Public workflow repository for perturbation-analysis pipelines in X_Atlas.
 
