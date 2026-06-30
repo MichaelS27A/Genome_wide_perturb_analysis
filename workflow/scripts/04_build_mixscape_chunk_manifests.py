@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import random
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List
@@ -36,6 +37,13 @@ def iter_csv_chunks(csv_path: Path, chunk_size: int) -> Iterable[pd.DataFrame]:
         low_memory=True,
     ):
         yield ch
+
+
+def choose_control_subset(control_barcodes: List[str], max_controls_per_chunk: int, seed: int) -> List[str]:
+    if max_controls_per_chunk <= 0 or len(control_barcodes) <= max_controls_per_chunk:
+        return control_barcodes
+    rng = random.Random(seed)
+    return rng.sample(control_barcodes, max_controls_per_chunk)
 
 
 def load_obs_from_h5ad(h5ad_path: Path, pert_col: str) -> pd.DataFrame:
@@ -62,6 +70,7 @@ def build_from_dataframe(
     perturbations_per_chunk: int,
     min_cells_per_perturbation: int,
     max_controls_per_chunk: int,
+    control_sample_seed: int,
 ) -> dict:
     chunks_dir = outdir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -87,8 +96,10 @@ def build_from_dataframe(
         for p in group:
             pert_to_chunk[p] = cid
 
-    controls_for_chunk = (
-        control_barcodes[:max_controls_per_chunk] if max_controls_per_chunk > 0 else control_barcodes
+    controls_for_chunk = choose_control_subset(
+        control_barcodes=control_barcodes,
+        max_controls_per_chunk=max_controls_per_chunk,
+        seed=control_sample_seed,
     )
 
     writers = {}
@@ -149,6 +160,7 @@ def build_from_csv(
     min_cells_per_perturbation: int,
     max_controls_per_chunk: int,
     chunk_size: int,
+    control_sample_seed: int,
 ) -> dict:
     # Keep CSV mode streaming, because this can be very large.
     total_rows = 0
@@ -178,7 +190,11 @@ def build_from_csv(
         for p in group:
             pert_to_chunk[p] = cid
 
-    controls_for_chunk = control_barcodes[: max_controls_per_chunk] if max_controls_per_chunk > 0 else control_barcodes
+    controls_for_chunk = choose_control_subset(
+        control_barcodes=control_barcodes,
+        max_controls_per_chunk=max_controls_per_chunk,
+        seed=control_sample_seed,
+    )
 
     chunks_dir = outdir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
@@ -244,6 +260,7 @@ def main() -> None:
     ap.add_argument("--perturbations-per-chunk", type=int, default=128)
     ap.add_argument("--min-cells-per-perturbation", type=int, default=30)
     ap.add_argument("--max-controls-per-chunk", type=int, default=50000)
+    ap.add_argument("--control-sample-seed", type=int, default=0)
     ap.add_argument("--chunk-size", type=int, default=300_000)
     args = ap.parse_args()
 
@@ -262,6 +279,7 @@ def main() -> None:
             min_cells_per_perturbation=args.min_cells_per_perturbation,
             max_controls_per_chunk=args.max_controls_per_chunk,
             chunk_size=args.chunk_size,
+            control_sample_seed=args.control_sample_seed,
         )
         source_meta = {"source_type": "csv", "csv": str(args.csv)}
     else:
@@ -273,6 +291,7 @@ def main() -> None:
             perturbations_per_chunk=args.perturbations_per_chunk,
             min_cells_per_perturbation=args.min_cells_per_perturbation,
             max_controls_per_chunk=args.max_controls_per_chunk,
+            control_sample_seed=args.control_sample_seed,
         )
         source_meta = {
             "source_type": "h5ad_obs",
@@ -286,6 +305,7 @@ def main() -> None:
         "perturbations_per_chunk": args.perturbations_per_chunk,
         "min_cells_per_perturbation": args.min_cells_per_perturbation,
         "max_controls_per_chunk": args.max_controls_per_chunk,
+        "control_sample_seed": args.control_sample_seed,
         **result,
     }
 

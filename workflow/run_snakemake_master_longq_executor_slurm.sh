@@ -2,7 +2,7 @@
 #SBATCH --job-name=snakemake_master_slurmexec
 #SBATCH --partition=shortq
 #SBATCH --qos=shortq
-#SBATCH --time=11:50:00
+#SBATCH --time=11:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --account=lab_gsf
@@ -19,24 +19,39 @@ WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
 cd "$WORKDIR"
 
 # ---- settings (aligned with interactive launcher) ----
-SNAKEFILE="${SNAKEFILE:-workflow/Snakefile}"
-CONFIGFILE="${CONFIGFILE:-config/config.yaml}"
-TARGET_RULE="${TARGET_RULE:-all}"
+SNAKEFILE="workflow/Snakefile"
+CONFIGFILE="config/config.yaml"
+TARGET_RULE="all"
 
-JOBS="${JOBS:-50}"
-LOCAL_CORES="${LOCAL_CORES:-1}"
+# Keep this as the only easy override when submitting via sbatch:
+#   sbatch --export=ALL,JOBS=10 workflow/run_snakemake_master_longq_executor_slurm.sh
+JOBS="${JOBS:-1}"
+LOCAL_CORES=1
 
-SLURM_PARTITION="${SLURM_PARTITION:-shortq}"
-SLURM_QOS="${SLURM_QOS:-shortq}"
-SLURM_ACCOUNT="${SLURM_ACCOUNT:-lab_gsf}"
+SLURM_PARTITION="shortq"
+SLURM_QOS="shortq"
+SLURM_ACCOUNT="lab_gsf"
 
-DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
-DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
-LATENCY_WAIT="${LATENCY_WAIT:-60}"
+DEFAULT_MEM_MB=8000
+DEFAULT_RUNTIME_MIN=660
+LATENCY_WAIT=60
 
 CONDA_BASE="${CONDA_BASE:-$HOME/miniconda3}"
-CONDA_ENV="${CONDA_ENV:-snakemake}"
+CONDA_ENV="snakemake"
 # ------------------------------------------------------
+
+# Auto-detect cluster conda location if default home path is absent.
+if [[ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
+  for ALT_CONDA_BASE in \
+    "/nobackup/lab_gsf/${USER}/conda" \
+    "/nobackup/lab_gsf/${USER}/miniconda3"
+  do
+    if [[ -f "$ALT_CONDA_BASE/etc/profile.d/conda.sh" ]]; then
+      CONDA_BASE="$ALT_CONDA_BASE"
+      break
+    fi
+  done
+fi
 
 if [[ ! -f "$SNAKEFILE" ]]; then
   echo "ERROR: missing $SNAKEFILE" >&2

@@ -18,6 +18,7 @@ checkpoint build_chunk_manifests:
         ppc=CFG["chunking"]["perturbations_per_chunk"],
         min_cells=CFG["chunking"]["min_cells_per_perturbation"],
         max_controls=CFG["chunking"]["max_controls_per_chunk"],
+        control_seed=CFG["chunking"].get("control_sample_seed", 0),
         read_chunk=CFG["chunking"]["csv_read_chunk_size"]
     resources:
         mem_mb=64000,
@@ -33,6 +34,7 @@ checkpoint build_chunk_manifests:
             "--perturbations-per-chunk {params.ppc} "
             "--min-cells-per-perturbation {params.min_cells} "
             "--max-controls-per-chunk {params.max_controls} "
+            "--control-sample-seed {params.control_seed} "
             "--chunk-size {params.read_chunk}"
         )
 

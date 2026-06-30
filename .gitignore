@@ -18,6 +18,10 @@ venv/
 *.log
 *.out
 *.err
+slurm-*.out
+slurm-*.err
+snakemake_master*.out
+snakemake_master*.err
 
 # Pipeline outputs and local data
 results/

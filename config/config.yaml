@@ -19,7 +19,8 @@ datasets:
 chunking:
   perturbations_per_chunk: 128
   min_cells_per_perturbation: 30
-  max_controls_per_chunk: 50000
+  max_controls_per_chunk: 10000
+  control_sample_seed: 0
   csv_read_chunk_size: 300000
 
 mixscape:

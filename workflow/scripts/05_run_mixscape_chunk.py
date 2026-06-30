@@ -38,8 +38,21 @@ def load_subset(h5ad_path: Path, chunk_cells_tsv: Path) -> ad.AnnData:
         adata.file.close()
         raise RuntimeError("No overlap between chunk barcodes and adata.obs_names")
 
-    sub = adata[keep].to_memory()
-    adata.file.close()
+    try:
+        sub = adata[keep].to_memory()
+    except Exception as e:
+        # Fallback for fragile backed sparse slicing paths on some anndata/h5py/scipy stacks.
+        idx = np.where(keep)[0]
+        batch = 512
+        parts: list[ad.AnnData] = []
+        for i in range(0, len(idx), batch):
+            j = min(i + batch, len(idx))
+            parts.append(adata[idx[i:j]].to_memory())
+        if not parts:
+            raise RuntimeError("Subset fallback failed: no cells loaded") from e
+        sub = ad.concat(parts, axis=0, join="outer", merge="same")
+    finally:
+        adata.file.close()
 
     chunk_meta = chunk_df.drop_duplicates(subset=["cell_barcode"]).set_index("cell_barcode")
     common = sub.obs_names.intersection(chunk_meta.index)
@@ -50,7 +63,11 @@ def load_subset(h5ad_path: Path, chunk_cells_tsv: Path) -> ad.AnnData:
 
 
 def run_mixscape(
-    adata: ad.AnnData, pert_col: str, control_label: str, use_hvg_for_pca: bool = False
+    adata: ad.AnnData,
+    pert_col: str,
+    control_label: str,
+    use_hvg_for_pca: bool = False,
+    batch_size: int | None = None,
 ) -> None:
     import pertpy as pt
 
@@ -61,8 +78,18 @@ def run_mixscape(
     sc.pp.pca(adata, use_highly_variable=use_hvg_for_pca)
 
     ms = pt.tl.Mixscape()
-    split_by = "sample" if "sample" in adata.obs.columns else None
-    ms.perturbation_signature(adata, pert_key=pert_col, control=control_label, split_by=split_by)
+    # NOTE:
+    # With current pertpy/scipy combination, split_by path can fail when indexing
+    # sparse matrices using pandas Series masks. Keep behavior robust by disabling
+    # split-wise signature computation here.
+    split_by = None
+    ms.perturbation_signature(
+        adata,
+        pert_key=pert_col,
+        control=control_label,
+        split_by=split_by,
+        batch_size=batch_size,
+    )
     ms.mixscape(adata=adata, control=control_label, labels=pert_col, layer="X_pert")
 
 
@@ -157,6 +184,12 @@ def main() -> None:
     ap.add_argument("--control-label", type=str, default="Non-Targeting")
     ap.add_argument("--pca-dims", type=int, default=20)
     ap.add_argument("--chunk-id", type=str, default=None)
+    ap.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Optional batch size for Mixscape perturbation_signature; can avoid sparse assignment errors.",
+    )
     ap.add_argument("--write-subset", action="store_true")
     ap.add_argument(
         "--use-hvg-for-pca",
@@ -176,6 +209,7 @@ def main() -> None:
         pert_col=args.pert_col,
         control_label=args.control_label,
         use_hvg_for_pca=args.use_hvg_for_pca,
+        batch_size=args.batch_size,
     )
     stats_df, effects_df, labels_df = summarize_chunk(
         adata,
@@ -209,6 +243,7 @@ def main() -> None:
         "control_label": args.control_label,
         "pca_dims": args.pca_dims,
         "use_hvg_for_pca": bool(args.use_hvg_for_pca),
+        "batch_size": args.batch_size,
         "n_selected_perturbed_cells": int(sel.shape[0]),
     }
     (args.output_dir / "run_meta.json").write_text(json.dumps(run_meta, indent=2))
