@@ -34,3 +34,4 @@ workflow/archive/
 *.h5
 *.zip
 *.gz
+workflow/Snakefile.pre_split_check

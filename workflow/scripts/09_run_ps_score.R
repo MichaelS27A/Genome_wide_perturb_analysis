@@ -12,10 +12,12 @@ suppressPackageStartupMessages({
 option_list <- list(
   make_option("--h5ad", type = "character"),
   make_option("--outdir", type = "character"),
+  make_option("--chunk-cells", type = "character", default = NULL, dest = "chunk_cells"),
+  make_option("--chunk-id", type = "character", default = NULL, dest = "chunk_id"),
   make_option("--pert-col", type = "character", default = "gene_target", dest = "pert_col"),
   make_option("--control-label", type = "character", default = "Non-Targeting", dest = "control_label"),
   make_option("--min-cells-per-perturbation", type = "integer", default = 30, dest = "min_cells_per_perturbation"),
-  make_option("--max-perturbations", type = "integer", default = 100, dest = "max_perturbations"),
+  make_option("--max-perturbations", type = "integer", default = 0, dest = "max_perturbations"),
   make_option("--max-cells", type = "integer", default = 0, dest = "max_cells"),
   make_option("--random-seed", type = "integer", default = 0, dest = "random_seed")
 )
@@ -27,7 +29,22 @@ set.seed(opt$random_seed)
 
 anndata <- import("anndata")
 sp <- import("scipy.sparse")
+np <- import("numpy")
 ad <- anndata$read_h5ad(opt$h5ad)
+
+if (!is.null(opt$chunk_cells) && nzchar(opt$chunk_cells)) {
+  chunk_df <- read.table(opt$chunk_cells, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+  if (!("cell_barcode" %in% colnames(chunk_df))) {
+    stop("chunk-cells file must include 'cell_barcode' column")
+  }
+  barcodes <- unique(as.character(chunk_df$cell_barcode))
+  if (length(barcodes) == 0) stop("No barcodes found in chunk-cells file")
+  keep <- ad$obs_names$astype("str")$isin(r_to_py(barcodes))
+  idx <- np$where(keep)[[1]]
+  if (py_to_r(idx$size) == 0) stop("No overlap between chunk barcodes and adata.obs_names")
+  ad <- ad[idx, ]
+}
+
 obs <- py_to_r(ad$obs)
 if (!(opt$pert_col %in% colnames(obs))) stop(sprintf("perturbation column '%s' not found", opt$pert_col))
 
@@ -76,7 +93,9 @@ bc_frame <- data.frame(
 counts_per <- sort(table(bc_frame$gene), decreasing = TRUE)
 perts <- names(counts_per[counts_per >= opt$min_cells_per_perturbation])
 perts <- perts[perts != opt$control_label]
-if (length(perts) > opt$max_perturbations) perts <- perts[seq_len(opt$max_perturbations)]
+if (opt$max_perturbations > 0 && length(perts) > opt$max_perturbations) {
+  perts <- perts[seq_len(opt$max_perturbations)]
+}
 
 score_parts <- list()
 summary_rows <- list()
@@ -116,6 +135,8 @@ write.table(summ, gzfile(file.path(opt$outdir, "perturbation_summary.tsv.gz")), 
 meta_out <- list(
   method = "PS_scMAGeCK",
   h5ad = opt$h5ad,
+  chunk_cells = opt$chunk_cells,
+  chunk_id = opt$chunk_id,
   pert_col = opt$pert_col,
   control_label = opt$control_label,
   n_cells = nrow(obs),

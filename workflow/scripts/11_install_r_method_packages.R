@@ -39,16 +39,13 @@ ensure_github <- function(pkg, repo) {
   }
 }
 
-# Base dependencies used by Mixscale/PS workflows.
 for (p in c("Seurat", "PMA", "protoclust", "jsonlite", "Matrix", "reticulate", "devtools")) {
   ensure_cran(p)
 }
 
 ensure_bioc("glmGamPoi")
 
-# Method packages from official repositories.
-ensure_github("Mixscale", "longmanz/Mixscale")
 ensure_github("scMAGeCK", "weililab/scMAGeCK")
 
 writeLines("ok", con = opt$marker)
-cat("[ok] installed/verified Mixscale + scMAGeCK and dependencies\n")
+cat("[ok] installed/verified scMAGeCK and dependencies\n")

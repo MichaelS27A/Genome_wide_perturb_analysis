@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 from pathlib import Path
 
@@ -20,11 +21,16 @@ def detect_perturbed_mask(obs: pd.DataFrame) -> pd.Series:
     if not candidates:
         return pd.Series(False, index=obs.index)
 
-    col = candidates[0]
-    vals = obs[col].astype(str).str.lower()
-    # Common conventions: KO vs NP, or 'perturbed' strings.
-    mask = vals.str.contains("ko|perturbed", regex=True, na=False)
-    return mask
+    preferred = [c for c in ("mixscape_class_global", "mixscape_class") if c in candidates]
+    remaining = [c for c in candidates if c not in preferred]
+    ordered = preferred + remaining
+
+    for col in ordered:
+        vals = obs[col].astype(str).str.lower()
+        mask = vals.str.contains("ko|perturbed", regex=True, na=False)
+        if bool(mask.any()):
+            return mask
+    return pd.Series(False, index=obs.index)
 
 
 def load_subset(h5ad_path: Path, chunk_cells_tsv: Path) -> ad.AnnData:
@@ -41,7 +47,6 @@ def load_subset(h5ad_path: Path, chunk_cells_tsv: Path) -> ad.AnnData:
     try:
         sub = adata[keep].to_memory()
     except Exception as e:
-        # Fallback for fragile backed sparse slicing paths on some anndata/h5py/scipy stacks.
         idx = np.where(keep)[0]
         batch = 512
         parts: list[ad.AnnData] = []
@@ -68,20 +73,18 @@ def run_mixscape(
     control_label: str,
     use_hvg_for_pca: bool = False,
     batch_size: int | None = None,
+    normalize_target_sum: float = 1e4,
+    mixscape_logfc_threshold: float = 0.10,
+    mixscape_pval_cutoff: float = 0.05,
 ) -> None:
     import pertpy as pt
 
-    sc.pp.normalize_total(adata)
+    sc.pp.normalize_total(adata, target_sum=normalize_target_sum)
     sc.pp.log1p(adata)
-    # Keep HVG annotation for diagnostics, but default to full-transcriptome PCA.
     sc.pp.highly_variable_genes(adata, subset=False)
     sc.pp.pca(adata, use_highly_variable=use_hvg_for_pca)
 
     ms = pt.tl.Mixscape()
-    # NOTE:
-    # With current pertpy/scipy combination, split_by path can fail when indexing
-    # sparse matrices using pandas Series masks. Keep behavior robust by disabling
-    # split-wise signature computation here.
     split_by = None
     ms.perturbation_signature(
         adata,
@@ -90,7 +93,18 @@ def run_mixscape(
         split_by=split_by,
         batch_size=batch_size,
     )
-    ms.mixscape(adata=adata, control=control_label, labels=pert_col, layer="X_pert")
+    mixscape_kwargs = dict(
+        adata=adata,
+        control=control_label,
+        layer="X_pert",
+        logfc_threshold=mixscape_logfc_threshold,
+        pval_cutoff=mixscape_pval_cutoff,
+    )
+    if "pert_key" in inspect.signature(ms.mixscape).parameters:
+        mixscape_kwargs["pert_key"] = pert_col
+    else:
+        mixscape_kwargs["labels"] = pert_col
+    ms.mixscape(**mixscape_kwargs)
 
 
 def summarize_chunk(
@@ -120,7 +134,6 @@ def summarize_chunk(
     effect_rows = []
     labels_rows = []
 
-    # Cell-level output with perturbed flags.
     out_cols = [pert_col]
     mix_cols = [c for c in obs.columns if "mixscape" in c.lower()]
     out_cols.extend(mix_cols)
@@ -140,7 +153,6 @@ def summarize_chunk(
         delta = mean_vec - ctrl_vec
         l2 = float(np.linalg.norm(delta))
 
-        # Per-PC one-sample difference vs control via two-sample t-test.
         if pert == control_label:
             t_stat = np.nan
             p_val = np.nan
@@ -196,6 +208,9 @@ def main() -> None:
         action="store_true",
         help="If set, PCA is computed on highly variable genes only. Default uses full transcriptome.",
     )
+    ap.add_argument("--normalize-target-sum", type=float, default=1e4)
+    ap.add_argument("--mixscape-logfc-threshold", type=float, default=0.10)
+    ap.add_argument("--mixscape-pval-cutoff", type=float, default=0.05)
     args = ap.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -210,6 +225,9 @@ def main() -> None:
         control_label=args.control_label,
         use_hvg_for_pca=args.use_hvg_for_pca,
         batch_size=args.batch_size,
+        normalize_target_sum=args.normalize_target_sum,
+        mixscape_logfc_threshold=args.mixscape_logfc_threshold,
+        mixscape_pval_cutoff=args.mixscape_pval_cutoff,
     )
     stats_df, effects_df, labels_df = summarize_chunk(
         adata,
@@ -218,7 +236,6 @@ def main() -> None:
         pca_dims=args.pca_dims,
     )
 
-    # Keep only predicted-perturbed cells from non-control perturbations.
     sel = labels_df.copy()
     sel["perturbation"] = sel[args.pert_col].astype(str)
     sel = sel[
@@ -244,6 +261,9 @@ def main() -> None:
         "pca_dims": args.pca_dims,
         "use_hvg_for_pca": bool(args.use_hvg_for_pca),
         "batch_size": args.batch_size,
+        "normalize_target_sum": args.normalize_target_sum,
+        "mixscape_logfc_threshold": args.mixscape_logfc_threshold,
+        "mixscape_pval_cutoff": args.mixscape_pval_cutoff,
         "n_selected_perturbed_cells": int(sel.shape[0]),
     }
     (args.output_dir / "run_meta.json").write_text(json.dumps(run_meta, indent=2))

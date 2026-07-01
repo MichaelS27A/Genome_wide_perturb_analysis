@@ -1,4 +1,3 @@
-# Ultra-minimal environment - install pertpy last to avoid conflicts
 name: preprocessing_ultra_minimal
 
 channels:
@@ -7,7 +6,7 @@ channels:
   - defaults
 
 dependencies:
-  - python=3.10
+  - python=3.12
   - pip
   - pip:
     - numpy
@@ -15,5 +14,5 @@ dependencies:
     - scipy
     - scanpy
     - anndata
-    - pertpy
+    - pertpy @ git+https://github.com/scverse/pertpy.git@1.1.1
     - tqdm

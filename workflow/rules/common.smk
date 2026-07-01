@@ -32,6 +32,18 @@ DEFAULT_CONFIG = {
         "pca_dims": 20,
         "write_subset_h5ad": False,
         "use_hvg_for_pca": False,
+        "normalize_target_sum": 10000,
+        "logfc_threshold": 0.10,
+        "pval_cutoff": 0.05,
+    },
+    "mixscale": {
+        "use_hvg_for_pca": False,
+        "normalize_target_sum": 10000,
+        "logfc_threshold": 0.10,
+        "pval_cutoff": 0.05,
+        "min_de_genes": 5,
+        "max_de_genes": 100,
+        "batch_size": 0,
     },
     "clustering": {
         "n_clusters": 20,
@@ -53,14 +65,14 @@ DEFAULT_CONFIG = {
         "mixscale": {
             "enabled": False,
             "min_cells_per_perturbation": 30,
-            "max_perturbations": 100,
+            "max_perturbations": 0,
             "max_cells": 0,
             "random_seed": 0,
         },
         "ps": {
             "enabled": False,
             "min_cells_per_perturbation": 30,
-            "max_perturbations": 100,
+            "max_perturbations": 0,
             "max_cells": 0,
             "random_seed": 0,
         },
@@ -154,7 +166,7 @@ def all_targets():
     if audit_enabled():
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "inspection" / "ready.ok"), dataset=DATASETS))
 
-    if MIXSCALE_ENABLED or PS_ENABLED:
+    if PS_ENABLED:
         if r_bootstrap_enabled():
             outs.append(r_bootstrap_marker())
 

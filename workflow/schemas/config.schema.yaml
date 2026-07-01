@@ -29,6 +29,37 @@ properties:
   mixscape:
     type: object
     additionalProperties: true
+    properties:
+      pca_dims:
+        type: integer
+      write_subset_h5ad:
+        type: boolean
+      use_hvg_for_pca:
+        type: boolean
+      normalize_target_sum:
+        type: number
+      logfc_threshold:
+        type: number
+      pval_cutoff:
+        type: number
+  mixscale:
+    type: object
+    additionalProperties: true
+    properties:
+      use_hvg_for_pca:
+        type: boolean
+      normalize_target_sum:
+        type: number
+      logfc_threshold:
+        type: number
+      pval_cutoff:
+        type: number
+      min_de_genes:
+        type: integer
+      max_de_genes:
+        type: integer
+      batch_size:
+        type: integer
   clustering:
     type: object
     additionalProperties: true

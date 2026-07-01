@@ -55,6 +55,9 @@ rule run_chunk_mixscape:
         pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         pca_dims=CFG["mixscape"]["pca_dims"],
+        normalize_target_sum=CFG["mixscape"].get("normalize_target_sum", 10000),
+        logfc_threshold=CFG["mixscape"].get("logfc_threshold", 0.10),
+        pval_cutoff=CFG["mixscape"].get("pval_cutoff", 0.05),
         write_subset_flag="--write-subset" if CFG["mixscape"]["write_subset_h5ad"] else "",
         pca_gene_flag="--use-hvg-for-pca" if CFG["mixscape"].get("use_hvg_for_pca", False) else ""
     resources:
@@ -71,6 +74,9 @@ rule run_chunk_mixscape:
             "--pert-col {params.pert_col} "
             "--control-label {params.control} "
             "--pca-dims {params.pca_dims} "
+            "--normalize-target-sum {params.normalize_target_sum} "
+            "--mixscape-logfc-threshold {params.logfc_threshold} "
+            "--mixscape-pval-cutoff {params.pval_cutoff} "
             "--chunk-id {wildcards.chunk} "
             "{params.pca_gene_flag} "
             "{params.write_subset_flag}"
