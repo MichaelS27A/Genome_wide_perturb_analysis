@@ -36,6 +36,8 @@ properties:
         type: boolean
       use_hvg_for_pca:
         type: boolean
+      batch_size:
+        type: integer
       normalize_target_sum:
         type: number
       logfc_threshold:

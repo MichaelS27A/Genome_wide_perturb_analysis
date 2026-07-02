@@ -14,7 +14,9 @@ set -euo pipefail
 #   CONTROL_N=10000        # controls in onepert mode
 #   CHUNK_MAX_CONTROLS=10000   # cap controls in chunk mode; 0 disables capping
 #   CHUNK_CONTROL_SEED=0       # RNG seed for chunk control downsampling
-#   BATCH_SIZE=1024        # passed to 05_run_mixscape_chunk.py
+#   BATCH_SIZE=0           # passed to 05_run_mixscape_chunk.py (0 disables internal batching)
+#   AUTO_BATCH_MAX_ELEMENTS=800000000  # auto-enable batching above this n_cells*n_genes threshold (0 disables)
+#   AUTO_BATCH_SIZE=2000    # batch size used when auto-batching is triggered
 #   PERT_COL=gene_target
 #   CONTROL_LABEL=Non-Targeting
 #   MIXSCAPE_CONDA_ENV=snakemake   # fallback env for conda run
@@ -32,7 +34,9 @@ PERT_COL="${PERT_COL:-gene_target}"
 CONTROL_LABEL="${CONTROL_LABEL:-Non-Targeting}"
 CONTROL_N="${CONTROL_N:-10000}"
 CHUNK_MAX_CONTROLS="${CHUNK_MAX_CONTROLS:-10000}"
-BATCH_SIZE="${BATCH_SIZE:-1024}"
+BATCH_SIZE="${BATCH_SIZE:-0}"
+AUTO_BATCH_MAX_ELEMENTS="${AUTO_BATCH_MAX_ELEMENTS:-800000000}"
+AUTO_BATCH_SIZE="${AUTO_BATCH_SIZE:-2000}"
 SEED="${SEED:-0}"
 CHUNK_CONTROL_SEED="${CHUNK_CONTROL_SEED:-$SEED}"
 PCA_DIMS="${PCA_DIMS:-20}"
@@ -183,7 +187,9 @@ PY
     --control-label "$CONTROL_LABEL" \
     --pca-dims "$PCA_DIMS" \
     --chunk-id "$chunk" \
-    --batch-size "$BATCH_SIZE"
+    --batch-size "$BATCH_SIZE" \
+    --auto-batch-max-elements "$AUTO_BATCH_MAX_ELEMENTS" \
+    --auto-batch-size "$AUTO_BATCH_SIZE"
 }
 
 run_one_pert() {
@@ -236,7 +242,9 @@ PY
     --control-label "$CONTROL_LABEL" \
     --pca-dims "$PCA_DIMS" \
     --chunk-id "onepert_${safe_pert}" \
-    --batch-size "$BATCH_SIZE"
+    --batch-size "$BATCH_SIZE" \
+    --auto-batch-max-elements "$AUTO_BATCH_MAX_ELEMENTS" \
+    --auto-batch-size "$AUTO_BATCH_SIZE"
 }
 
 case "$MODE" in

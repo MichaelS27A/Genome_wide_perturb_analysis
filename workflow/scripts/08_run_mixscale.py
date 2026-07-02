@@ -12,6 +12,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import scanpy as sc
+from scipy import sparse
 
 
 def _load_by_barcodes(h5ad_path: Path, barcodes: list[str]) -> ad.AnnData:
@@ -123,6 +124,21 @@ def main() -> None:
     ap.add_argument("--mixscale-min-de-genes", type=int, default=5)
     ap.add_argument("--mixscale-max-de-genes", type=int, default=100)
     ap.add_argument("--batch-size", type=int, default=0)
+    ap.add_argument(
+        "--auto-batch-max-elements",
+        type=int,
+        default=800_000_000,
+        help=(
+            "Auto-enable internal batching when n_cells*n_genes exceeds this threshold. "
+            "Set 0 to disable auto-batching."
+        ),
+    )
+    ap.add_argument(
+        "--auto-batch-size",
+        type=int,
+        default=2000,
+        help="Batch size to use when auto-batching is triggered.",
+    )
     args = ap.parse_args()
 
     args.outdir.mkdir(parents=True, exist_ok=True)
@@ -144,6 +160,16 @@ def main() -> None:
     sc.pp.highly_variable_genes(adata, subset=False)
     sc.pp.pca(adata, use_highly_variable=bool(args.use_hvg_for_pca))
 
+    # Sparse perturbation_signature code paths in pertpy are fragile for wide
+    # matrices; convert to dense float32 before calling pertpy methods.
+    if sparse.issparse(adata.X):
+        print(
+            f"[mixscale] Converting sparse matrix to dense float32 "
+            f"(cells={adata.n_obs}, genes={adata.n_vars})",
+            flush=True,
+        )
+        adata.X = adata.X.toarray().astype(np.float32, copy=False)
+
     import pertpy as pt
 
     if not hasattr(pt.tl, "Mixscale"):
@@ -154,6 +180,19 @@ def main() -> None:
 
     ms = pt.tl.Mixscale()
     batch_size = args.batch_size if args.batch_size and args.batch_size > 0 else None
+    matrix_elements = int(adata.n_obs) * int(adata.n_vars)
+    if (
+        batch_size is None
+        and args.auto_batch_max_elements > 0
+        and matrix_elements > int(args.auto_batch_max_elements)
+    ):
+        batch_size = max(1, int(args.auto_batch_size))
+        print(
+            "[mixscale] Auto-enabling batching due to large matrix: "
+            f"elements={matrix_elements} threshold={int(args.auto_batch_max_elements)} "
+            f"batch_size={batch_size}",
+            flush=True,
+        )
     ms.perturbation_signature(
         adata=adata,
         pert_key=args.pert_col,
@@ -217,6 +256,8 @@ def main() -> None:
             "mixscale_min_de_genes": int(args.mixscale_min_de_genes),
             "mixscale_max_de_genes": int(args.mixscale_max_de_genes),
             "batch_size": batch_size,
+            "auto_batch_max_elements": int(args.auto_batch_max_elements),
+            "auto_batch_size": int(args.auto_batch_size),
             "min_cells_per_perturbation": int(args.min_cells_per_perturbation),
             "max_perturbations": int(args.max_perturbations),
             "random_seed": int(args.random_seed),

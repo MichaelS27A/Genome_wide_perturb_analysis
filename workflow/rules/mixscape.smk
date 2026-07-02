@@ -55,6 +55,7 @@ rule run_chunk_mixscape:
         pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         pca_dims=CFG["mixscape"]["pca_dims"],
+        batch_size=CFG["mixscape"].get("batch_size", 0),
         normalize_target_sum=CFG["mixscape"].get("normalize_target_sum", 10000),
         logfc_threshold=CFG["mixscape"].get("logfc_threshold", 0.10),
         pval_cutoff=CFG["mixscape"].get("pval_cutoff", 0.05),
@@ -67,6 +68,11 @@ rule run_chunk_mixscape:
         CFG["conda_env"]
     shell:
         (
+            "export OMP_NUM_THREADS=1; "
+            "export OPENBLAS_NUM_THREADS=1; "
+            "export MKL_NUM_THREADS=1; "
+            "export VECLIB_MAXIMUM_THREADS=1; "
+            "export NUMEXPR_NUM_THREADS=1; "
             "python {BASE_DIR}/scripts/05_run_mixscape_chunk.py "
             "--h5ad {input.h5ad} "
             "--chunk-cells {input.chunk_cells} "
@@ -74,6 +80,7 @@ rule run_chunk_mixscape:
             "--pert-col {params.pert_col} "
             "--control-label {params.control} "
             "--pca-dims {params.pca_dims} "
+            "--batch-size {params.batch_size} "
             "--normalize-target-sum {params.normalize_target_sum} "
             "--mixscape-logfc-threshold {params.logfc_threshold} "
             "--mixscape-pval-cutoff {params.pval_cutoff} "

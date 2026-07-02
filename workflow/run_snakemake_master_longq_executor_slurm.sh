@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=snakemake_master_slurmexec
-#SBATCH --partition=longq
-#SBATCH --qos=longq
-#SBATCH --time=3-00:00:00
+#SBATCH --partition=mediumq
+#SBATCH --qos=mediumq
+#SBATCH --time=47:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --account=lab_gsf
@@ -15,7 +15,17 @@ set -euo pipefail
 # Behavior is aligned with workflow/run_interactive_snakemake.sh.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RAW_WORKDIR="${WORKDIR:-${SLURM_SUBMIT_DIR:-$REPO_ROOT}}"
+
+# Accept submission from either repo root (.../code) or workflow dir (.../code/workflow).
+if [[ -f "$RAW_WORKDIR/workflow/Snakefile" ]]; then
+  WORKDIR="$RAW_WORKDIR"
+elif [[ -f "$RAW_WORKDIR/Snakefile" && -d "$RAW_WORKDIR/rules" && -d "$RAW_WORKDIR/scripts" ]]; then
+  WORKDIR="$(cd "$RAW_WORKDIR/.." && pwd)"
+else
+  WORKDIR="$REPO_ROOT"
+fi
 cd "$WORKDIR"
 
 # ---- settings (aligned with interactive launcher) ----
@@ -36,21 +46,9 @@ DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
 DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
 LATENCY_WAIT="${LATENCY_WAIT:-60}"
 
-CONDA_BASE="${CONDA_BASE:-$HOME/miniconda3}"
+CONDA_BASE="/nobackup/lab_gsf/mschoeber/miniconda3"
 CONDA_ENV="snakemake"
 # ------------------------------------------------------
-
-if [[ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
-  for ALT_CONDA_BASE in \
-    "$HOME/conda" \
-    "$HOME/miniconda3"
-  do
-    if [[ -f "$ALT_CONDA_BASE/etc/profile.d/conda.sh" ]]; then
-      CONDA_BASE="$ALT_CONDA_BASE"
-      break
-    fi
-  done
-fi
 
 if [[ ! -f "$SNAKEFILE" ]]; then
   echo "ERROR: missing $SNAKEFILE" >&2
@@ -66,7 +64,7 @@ if [[ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
 fi
 
 # shellcheck disable=SC1090
-source "$CONDA_BASE/etc/profile.d/conda.sh"
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV"
 
 if ! command -v snakemake >/dev/null 2>&1; then

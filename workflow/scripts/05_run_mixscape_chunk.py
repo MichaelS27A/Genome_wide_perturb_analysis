@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from scipy import stats
+from scipy import sparse
 
 
 def detect_perturbed_mask(obs: pd.DataFrame) -> pd.Series:
@@ -73,6 +74,8 @@ def run_mixscape(
     control_label: str,
     use_hvg_for_pca: bool = False,
     batch_size: int | None = None,
+    auto_batch_max_elements: int = 800_000_000,
+    auto_batch_size: int = 2000,
     normalize_target_sum: float = 1e4,
     mixscape_logfc_threshold: float = 0.10,
     mixscape_pval_cutoff: float = 0.05,
@@ -83,6 +86,30 @@ def run_mixscape(
     sc.pp.log1p(adata)
     sc.pp.highly_variable_genes(adata, subset=False)
     sc.pp.pca(adata, use_highly_variable=use_hvg_for_pca)
+
+    # Sparse perturbation_signature code paths in pertpy have shown instability
+    # on very wide matrices; operate on dense float32 for robustness.
+    if sparse.issparse(adata.X):
+        print(
+            f"[mixscape] Converting sparse matrix to dense float32 "
+            f"(cells={adata.n_obs}, genes={adata.n_vars})",
+            flush=True,
+        )
+        adata.X = adata.X.toarray().astype(np.float32, copy=False)
+
+    matrix_elements = int(adata.n_obs) * int(adata.n_vars)
+    if (
+        batch_size is None
+        and auto_batch_max_elements > 0
+        and matrix_elements > int(auto_batch_max_elements)
+    ):
+        batch_size = max(1, int(auto_batch_size))
+        print(
+            "[mixscape] Auto-enabling batching due to large matrix: "
+            f"elements={matrix_elements} threshold={int(auto_batch_max_elements)} "
+            f"batch_size={batch_size}",
+            flush=True,
+        )
 
     ms = pt.tl.Mixscape()
     split_by = None
@@ -199,8 +226,23 @@ def main() -> None:
     ap.add_argument(
         "--batch-size",
         type=int,
-        default=None,
-        help="Optional batch size for Mixscape perturbation_signature; can avoid sparse assignment errors.",
+        default=0,
+        help="Batch size for Mixscape perturbation_signature. Use 0 for full-chunk mode (no internal batching).",
+    )
+    ap.add_argument(
+        "--auto-batch-max-elements",
+        type=int,
+        default=800_000_000,
+        help=(
+            "Auto-enable internal batching when n_cells*n_genes exceeds this threshold. "
+            "Set 0 to disable auto-batching."
+        ),
+    )
+    ap.add_argument(
+        "--auto-batch-size",
+        type=int,
+        default=2000,
+        help="Batch size to use when auto-batching is triggered.",
     )
     ap.add_argument("--write-subset", action="store_true")
     ap.add_argument(
@@ -219,12 +261,16 @@ def main() -> None:
     if args.pert_col not in adata.obs.columns:
         raise RuntimeError(f"perturbation column '{args.pert_col}' not found in adata.obs")
 
+    batch_size = args.batch_size if args.batch_size and args.batch_size > 0 else None
+
     run_mixscape(
         adata,
         pert_col=args.pert_col,
         control_label=args.control_label,
         use_hvg_for_pca=args.use_hvg_for_pca,
-        batch_size=args.batch_size,
+        batch_size=batch_size,
+        auto_batch_max_elements=args.auto_batch_max_elements,
+        auto_batch_size=args.auto_batch_size,
         normalize_target_sum=args.normalize_target_sum,
         mixscape_logfc_threshold=args.mixscape_logfc_threshold,
         mixscape_pval_cutoff=args.mixscape_pval_cutoff,
@@ -260,7 +306,9 @@ def main() -> None:
         "control_label": args.control_label,
         "pca_dims": args.pca_dims,
         "use_hvg_for_pca": bool(args.use_hvg_for_pca),
-        "batch_size": args.batch_size,
+        "batch_size": batch_size,
+        "auto_batch_max_elements": int(args.auto_batch_max_elements),
+        "auto_batch_size": int(args.auto_batch_size),
         "normalize_target_sum": args.normalize_target_sum,
         "mixscape_logfc_threshold": args.mixscape_logfc_threshold,
         "mixscape_pval_cutoff": args.mixscape_pval_cutoff,

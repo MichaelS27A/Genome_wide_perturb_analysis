@@ -49,6 +49,11 @@ rule run_chunk_mixscale_method:
         CFG["conda_env"]
     shell:
         (
+            "export OMP_NUM_THREADS=1; "
+            "export OPENBLAS_NUM_THREADS=1; "
+            "export MKL_NUM_THREADS=1; "
+            "export VECLIB_MAXIMUM_THREADS=1; "
+            "export NUMEXPR_NUM_THREADS=1; "
             "python {BASE_DIR}/scripts/08_run_mixscale.py "
             "--h5ad {input.h5ad} "
             "--chunk-cells {input.chunk_cells} "

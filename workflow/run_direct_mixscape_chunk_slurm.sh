@@ -12,7 +12,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONDA_BASE="${CONDA_BASE:-$HOME/miniconda3}"
+CONDA_BASE="/nobackup/lab_gsf/mschoeber/miniconda3"
+
+if [[ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
+  echo "ERROR: conda.sh not found at $CONDA_BASE/etc/profile.d/conda.sh" >&2
+  exit 1
+fi
 
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda activate "${PERTPY_CONDA_ENV:-pertpy_env}"
