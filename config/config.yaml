@@ -45,6 +45,8 @@ mixscape:
   pca_dims: 20
   write_subset_h5ad: false
   use_hvg_for_pca: false
+  csc_max_genes: 1000
+  csc_max_total_nnz: 120000000
   batch_size: 256
   normalize_target_sum: 10000
   logfc_threshold: 0.10
@@ -52,12 +54,43 @@ mixscape:
 
 mixscale:
   use_hvg_for_pca: false
+  csc_max_genes: 1000
+  csc_max_total_nnz: 120000000
   normalize_target_sum: 10000
   logfc_threshold: 0.10
   pval_cutoff: 0.05
   min_de_genes: 5
   max_de_genes: 100
   batch_size: 256
+
+global_de:
+  method: wilcoxon
+  normalize_target_sum: 10000
+  log1p: true
+  n_top_de_genes: 2000
+  min_cells_per_perturbation: 30
+  max_control_cells: 0
+  max_cells_per_perturbation: 0
+  random_seed: 0
+
+ora:
+  gmt_files: []
+  streams: [mixscape, global_de, ps]
+  fdr_alpha: 0.05
+  min_abs_logfc: 0.25
+  min_deg_genes: 10
+  max_terms_per_direction: 50
+  min_term_size: 5
+  max_term_size: 5000
+
+ps_de:
+  score_column: ps_score
+  score_mode: top_positive
+  score_quantile: 0.90
+  min_selected_cells: 20
+  max_control_cells: 50000
+  n_top_de_genes: 200
+  random_seed: 0
 
 clustering:
   n_clusters: 20
@@ -89,6 +122,10 @@ methods:
     max_perturbations: 0
     max_cells: 0
     random_seed: 0
+  global_de:
+    enabled: false
+  ora:
+    enabled: false
   comparison:
     enabled: false
 

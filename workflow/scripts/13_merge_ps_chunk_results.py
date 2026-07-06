@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Merge chunk-level PS outputs into dataset-level tables."""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -27,13 +26,10 @@ def _read_many(paths: list[Path]) -> pd.DataFrame:
     return pd.concat(frames, axis=0, ignore_index=True)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--dataset", required=True)
-    ap.add_argument("--chunk-cell-scores", nargs="+", type=Path, required=True)
-    ap.add_argument("--chunk-summary", nargs="+", type=Path, required=True)
-    ap.add_argument("--outdir", type=Path, required=True)
-    args = ap.parse_args()
+def run_analysis(args: argparse.Namespace) -> None:
+    args.chunk_cell_scores = [Path(str(p)) for p in args.chunk_cell_scores]
+    args.chunk_summary = [Path(str(p)) for p in args.chunk_summary]
+    args.outdir = Path(args.outdir)
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -71,6 +67,32 @@ def main() -> None:
     }
     meta_out.write_text(json.dumps(meta, indent=2))
     done_out.write_text("ok\n")
+
+
+def parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dataset", required=True)
+    ap.add_argument("--chunk-cell-scores", nargs="+", type=Path, required=True)
+    ap.add_argument("--chunk-summary", nargs="+", type=Path, required=True)
+    ap.add_argument("--outdir", type=Path, required=True)
+    return ap.parse_args()
+
+
+def args_from_snakemake(snk) -> argparse.Namespace:
+    return argparse.Namespace(
+        dataset=str(snk.params.dataset),
+        chunk_cell_scores=[Path(str(p)) for p in list(snk.input.cell_scores)],
+        chunk_summary=[Path(str(p)) for p in list(snk.input.summary)],
+        outdir=Path(str(snk.params.outdir)),
+    )
+
+
+def main() -> None:
+    if "snakemake" in globals():
+        args = args_from_snakemake(snakemake)
+    else:
+        args = parse_cli_args()
+    run_analysis(args)
 
 
 if __name__ == "__main__":

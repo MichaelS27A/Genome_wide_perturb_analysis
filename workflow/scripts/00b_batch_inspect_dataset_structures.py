@@ -5,7 +5,6 @@ This script is intentionally lightweight and h5py-first so it can inspect very
 large .h5ad files without loading expression matrices into memory.
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -377,35 +376,7 @@ def parse_dataset_args(items: list[str]) -> list[DatasetSpec]:
     return specs
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config", type=Path, default=None, help="Optional config.yaml to load enabled datasets.")
-    ap.add_argument(
-        "--dataset",
-        action="append",
-        default=[],
-        help="Extra dataset spec NAME=path/to/file.h5ad (can repeat).",
-    )
-    ap.add_argument(
-        "--use-defaults",
-        action="store_true",
-        help="Include built-in defaults for HCT116/HEK293T/STEMCELL/K562_GWPS_RAW_FULL.",
-    )
-    ap.add_argument(
-        "--candidate-pert-col",
-        action="append",
-        default=[],
-        help="Extra candidate pert_col name(s).",
-    )
-    ap.add_argument(
-        "--candidate-control-label",
-        action="append",
-        default=[],
-        help="Extra candidate control label(s).",
-    )
-    ap.add_argument("--outdir", type=Path, required=True)
-    args = ap.parse_args()
-
+def run_analysis(args: argparse.Namespace) -> None:
     specs: list[DatasetSpec] = []
     if args.config is not None:
         specs.extend(load_specs_from_config(args.config))
@@ -463,6 +434,57 @@ def main() -> None:
     if not summary_df.empty:
         print(summary_df.to_string(index=False))
     print(f"\nWrote: {summary_path}")
+
+
+def parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--config", type=Path, default=None, help="Optional config.yaml to load enabled datasets.")
+    ap.add_argument(
+        "--dataset",
+        action="append",
+        default=[],
+        help="Extra dataset spec NAME=path/to/file.h5ad (can repeat).",
+    )
+    ap.add_argument(
+        "--use-defaults",
+        action="store_true",
+        help="Include built-in defaults for HCT116/HEK293T/STEMCELL/K562_GWPS_RAW_FULL.",
+    )
+    ap.add_argument(
+        "--candidate-pert-col",
+        action="append",
+        default=[],
+        help="Extra candidate pert_col name(s).",
+    )
+    ap.add_argument(
+        "--candidate-control-label",
+        action="append",
+        default=[],
+        help="Extra candidate control label(s).",
+    )
+    ap.add_argument("--outdir", type=Path, required=True)
+    return ap.parse_args()
+
+
+def args_from_snakemake(snk) -> argparse.Namespace:
+    dataset = str(snk.params.dataset)
+    h5ad = str(snk.input.h5ad)
+    return argparse.Namespace(
+        config=None,
+        dataset=[f"{dataset}={h5ad}"],
+        use_defaults=False,
+        candidate_pert_col=[],
+        candidate_control_label=[],
+        outdir=Path(str(snk.params.outdir)),
+    )
+
+
+def main() -> None:
+    if "snakemake" in globals():
+        args = args_from_snakemake(snakemake)
+    else:
+        args = parse_cli_args()
+    run_analysis(args)
 
 
 if __name__ == "__main__":

@@ -41,38 +41,18 @@ rule run_chunk_mixscale_method:
         min_de_genes=CFG.get("mixscale", {}).get("min_de_genes", 5),
         max_de_genes=CFG.get("mixscale", {}).get("max_de_genes", 100),
         batch_size=CFG.get("mixscale", {}).get("batch_size", 0),
-        pca_gene_flag="--use-hvg-for-pca" if CFG.get("mixscale", {}).get("use_hvg_for_pca", False) else ""
+        auto_batch_max_elements=CFG.get("mixscale", {}).get("auto_batch_max_elements", 800000000),
+        auto_batch_size=CFG.get("mixscale", {}).get("auto_batch_size", 2000),
+        csc_max_genes=CFG.get("mixscale", {}).get("csc_max_genes", 1000),
+        csc_max_total_nnz=CFG.get("mixscale", {}).get("csc_max_total_nnz", 120000000),
+        use_hvg_for_pca=CFG.get("mixscale", {}).get("use_hvg_for_pca", False)
     resources:
-        mem_mb=180000,
+        mem_mb=200000,
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "export OMP_NUM_THREADS=1; "
-            "export OPENBLAS_NUM_THREADS=1; "
-            "export MKL_NUM_THREADS=1; "
-            "export VECLIB_MAXIMUM_THREADS=1; "
-            "export NUMEXPR_NUM_THREADS=1; "
-            "python {BASE_DIR}/scripts/08_run_mixscale.py "
-            "--h5ad {input.h5ad} "
-            "--chunk-cells {input.chunk_cells} "
-            "--chunk-id {wildcards.chunk} "
-            "--outdir {params.outdir} "
-            "--pert-col {params.pert_col} "
-            "--control-label {params.control} "
-            "--min-cells-per-perturbation {params.min_cells} "
-            "--max-perturbations {params.max_pert} "
-            "--max-cells {params.max_cells} "
-            "--random-seed {params.seed} "
-            "--normalize-target-sum {params.normalize_target_sum} "
-            "--mixscale-logfc-threshold {params.logfc_threshold} "
-            "--mixscale-pval-cutoff {params.pval_cutoff} "
-            "--mixscale-min-de-genes {params.min_de_genes} "
-            "--mixscale-max-de-genes {params.max_de_genes} "
-            "--batch-size {params.batch_size} "
-            "{params.pca_gene_flag}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "08_run_mixscale.py")
 
 
 rule run_mixscale_method:
@@ -85,17 +65,12 @@ rule run_mixscale_method:
         de=str(RESULTS_DIR / "{dataset}" / "mixscale" / "perturbation_de.tsv.gz"),
         meta=str(RESULTS_DIR / "{dataset}" / "mixscale" / "method_meta.json")
     params:
+        dataset=lambda wc: wc.dataset,
         outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "mixscale")
     resources:
         mem_mb=32000,
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/12_merge_mixscale_chunk_results.py "
-            "--dataset {wildcards.dataset} "
-            "--chunk-cell-scores {input.cell_scores} "
-            "--chunk-de {input.de} "
-            "--outdir {params.outdir}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "12_merge_mixscale_chunk_results.py")

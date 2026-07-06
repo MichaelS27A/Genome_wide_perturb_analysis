@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Post-Mixscape perturbation analysis: pseudobulk, UMAP/Leiden, and DE."""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -61,18 +60,10 @@ def extract_rank_genes_groups(adata: sc.AnnData, groups: list[str], n_top: int) 
     return pd.DataFrame(rows)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--h5ad", type=Path, required=True)
-    ap.add_argument("--selected-cells", type=Path, required=True)
-    ap.add_argument("--outdir", type=Path, required=True)
-    ap.add_argument("--pert-col", type=str, default="gene_target")
-    ap.add_argument("--control-label", type=str, default="Non-Targeting")
-    ap.add_argument("--min-selected-cells", type=int, default=20)
-    ap.add_argument("--max-control-cells", type=int, default=50000)
-    ap.add_argument("--n-top-de-genes", type=int, default=200)
-    ap.add_argument("--random-seed", type=int, default=0)
-    args = ap.parse_args()
+def run_analysis(args: argparse.Namespace) -> None:
+    args.h5ad = Path(args.h5ad)
+    args.selected_cells = Path(args.selected_cells)
+    args.outdir = Path(args.outdir)
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.random_seed)
@@ -251,6 +242,42 @@ def main() -> None:
     (args.outdir / "postprocess_meta.json").write_text(json.dumps(meta, indent=2))
 
     print(f"Wrote {args.outdir / 'postprocess_meta.json'}")
+
+
+def parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--h5ad", type=Path, required=True)
+    ap.add_argument("--selected-cells", type=Path, required=True)
+    ap.add_argument("--outdir", type=Path, required=True)
+    ap.add_argument("--pert-col", type=str, default="gene_target")
+    ap.add_argument("--control-label", type=str, default="Non-Targeting")
+    ap.add_argument("--min-selected-cells", type=int, default=20)
+    ap.add_argument("--max-control-cells", type=int, default=50000)
+    ap.add_argument("--n-top-de-genes", type=int, default=200)
+    ap.add_argument("--random-seed", type=int, default=0)
+    return ap.parse_args()
+
+
+def args_from_snakemake(snk) -> argparse.Namespace:
+    return argparse.Namespace(
+        h5ad=Path(str(snk.input.h5ad)),
+        selected_cells=Path(str(snk.input.selected_cells)),
+        outdir=Path(str(snk.params.outdir)),
+        pert_col=str(snk.params.pert_col),
+        control_label=str(snk.params.control),
+        min_selected_cells=int(snk.params.min_selected),
+        max_control_cells=int(snk.params.max_controls),
+        n_top_de_genes=int(snk.params.n_top),
+        random_seed=int(snk.params.seed),
+    )
+
+
+def main() -> None:
+    if "snakemake" in globals():
+        args = args_from_snakemake(snakemake)
+    else:
+        args = parse_cli_args()
+    run_analysis(args)
 
 
 if __name__ == "__main__":

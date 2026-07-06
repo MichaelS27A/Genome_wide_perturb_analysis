@@ -45,6 +45,35 @@ DEFAULT_CONFIG = {
         "max_de_genes": 100,
         "batch_size": 0,
     },
+    "global_de": {
+        "method": "wilcoxon",
+        "normalize_target_sum": 10000,
+        "log1p": True,
+        "n_top_de_genes": 2000,
+        "min_cells_per_perturbation": 30,
+        "max_control_cells": 0,
+        "max_cells_per_perturbation": 0,
+        "random_seed": 0,
+    },
+    "ora": {
+        "gmt_files": [],
+        "streams": ["mixscape", "global_de", "ps"],
+        "fdr_alpha": 0.05,
+        "min_abs_logfc": 0.25,
+        "min_deg_genes": 10,
+        "max_terms_per_direction": 50,
+        "min_term_size": 5,
+        "max_term_size": 5000,
+    },
+    "ps_de": {
+        "score_column": "ps_score",
+        "score_mode": "top_positive",
+        "score_quantile": 0.90,
+        "min_selected_cells": 20,
+        "max_control_cells": 50000,
+        "n_top_de_genes": 200,
+        "random_seed": 0,
+    },
     "clustering": {
         "n_clusters": 20,
     },
@@ -76,6 +105,8 @@ DEFAULT_CONFIG = {
             "max_cells": 0,
             "random_seed": 0,
         },
+        "global_de": {"enabled": False},
+        "ora": {"enabled": False},
         "comparison": {"enabled": False},
     },
     "results_dir": str(ROOT_DIR / "results" / "mixscape_pipeline"),
@@ -152,12 +183,32 @@ def r_bootstrap_marker():
 MIXSCAPE_ENABLED = method_enabled("mixscape")
 MIXSCALE_ENABLED = method_enabled("mixscale")
 PS_ENABLED = method_enabled("ps")
+GLOBAL_DE_ENABLED = method_enabled("global_de")
+ORA_ENABLED = method_enabled("ora")
 COMPARISON_ENABLED = method_enabled("comparison")
 
 if COMPARISON_ENABLED:
     missing = [m for m in ("mixscape", "mixscale", "ps") if not method_enabled(m)]
     if missing:
         raise ValueError(f"methods.comparison requires enabled methods: {missing}")
+
+VALID_ORA_STREAMS = {"mixscape", "global_de", "ps"}
+ORA_STREAMS = []
+if ORA_ENABLED:
+    configured_streams = CFG.get("ora", {}).get("streams", ["mixscape", "global_de", "ps"])
+    ORA_STREAMS = [str(s).strip().lower() for s in configured_streams if str(s).strip()]
+    ORA_STREAMS = list(dict.fromkeys(ORA_STREAMS))
+    if not ORA_STREAMS:
+        raise ValueError("methods.ora.enabled=true but ora.streams is empty.")
+    invalid_streams = sorted(set(ORA_STREAMS) - VALID_ORA_STREAMS)
+    if invalid_streams:
+        raise ValueError(f"ora.streams has invalid values: {invalid_streams}. Allowed: {sorted(VALID_ORA_STREAMS)}")
+    if "mixscape" in ORA_STREAMS and not MIXSCAPE_ENABLED:
+        raise ValueError("ora.streams includes 'mixscape' but methods.mixscape.enabled=false")
+    if "global_de" in ORA_STREAMS and not GLOBAL_DE_ENABLED:
+        raise ValueError("ora.streams includes 'global_de' but methods.global_de.enabled=false")
+    if "ps" in ORA_STREAMS and not PS_ENABLED:
+        raise ValueError("ora.streams includes 'ps' but methods.ps.enabled=false")
 
 
 def all_targets():
@@ -189,6 +240,33 @@ def all_targets():
 
     if PS_ENABLED:
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "ps" / "done.txt"), dataset=DATASETS))
+        outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "done.txt"), dataset=DATASETS))
+        outs.extend(
+            expand(str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "perturbation_differential_genes.tsv.gz"), dataset=DATASETS)
+        )
+
+    if GLOBAL_DE_ENABLED:
+        outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "done.txt"), dataset=DATASETS))
+        outs.extend(
+            expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "perturbation_differential_genes.tsv.gz"), dataset=DATASETS)
+        )
+
+    if ORA_ENABLED:
+        if "mixscape" in ORA_STREAMS:
+            outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "ora" / "done.txt"), dataset=DATASETS))
+            outs.extend(
+                expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "ora" / "ora_terms.tsv.gz"), dataset=DATASETS)
+            )
+        if "global_de" in ORA_STREAMS:
+            outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "ora" / "done.txt"), dataset=DATASETS))
+            outs.extend(
+                expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "ora" / "ora_terms.tsv.gz"), dataset=DATASETS)
+            )
+        if "ps" in ORA_STREAMS:
+            outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "ora" / "done.txt"), dataset=DATASETS))
+            outs.extend(
+                expand(str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "ora" / "ora_terms.tsv.gz"), dataset=DATASETS)
+            )
 
     if COMPARISON_ENABLED:
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "comparison" / "comparison_summary.tsv"), dataset=DATASETS))

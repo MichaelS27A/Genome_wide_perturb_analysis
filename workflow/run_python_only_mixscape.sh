@@ -6,6 +6,8 @@ set -euo pipefail
 # Modes:
 # 1) Existing chunk:
 #    workflow/run_python_only_mixscape.sh chunk HCT116 0052
+#    workflow/run_python_only_mixscape.sh HCT116 0052
+#    workflow/run_python_only_mixscape.sh HCT116 CHUNK52
 #
 # 2) One perturbation vs random controls:
 #    workflow/run_python_only_mixscape.sh onepert HCT116 TP53
@@ -26,9 +28,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-MODE="${1:-chunk}"
-DATASET="${2:-HCT116}"
-ARG3="${3:-0052}"
+if [[ $# -eq 0 ]]; then
+  MODE="chunk"
+  DATASET="HCT116"
+  ARG3="0052"
+elif [[ "${1}" == "chunk" || "${1}" == "onepert" || "${1}" == "check" ]]; then
+  MODE="${1}"
+  DATASET="${2:-HCT116}"
+  ARG3="${3:-0052}"
+else
+  # Shorthand form: <dataset> <chunk>
+  MODE="chunk"
+  DATASET="${1}"
+  ARG3="${2:-0052}"
+fi
 
 PERT_COL="${PERT_COL:-gene_target}"
 CONTROL_LABEL="${CONTROL_LABEL:-Non-Targeting}"
@@ -122,7 +135,16 @@ choose_python
 print_preflight
 
 run_chunk() {
-  local chunk="$1"
+  local raw_chunk="$1"
+  local chunk="$raw_chunk"
+
+  # Accept CHUNK1 / chunk_1 / 1 and normalize to 4-digit IDs used by files.
+  if [[ "$raw_chunk" =~ ^[Cc][Hh][Uu][Nn][Kk]_?([0-9]+)$ ]]; then
+    chunk="$(printf "%04d" "$((10#${BASH_REMATCH[1]}))")"
+  elif [[ "$raw_chunk" =~ ^[0-9]+$ ]]; then
+    chunk="$(printf "%04d" "$((10#$raw_chunk))")"
+  fi
+
   local chunk_cells="${RESULTS_ROOT}/${DATASET}/chunks/chunk_${chunk}_cells.tsv.gz"
   local outdir="${BASE_OUT}/chunk_${chunk}"
   local chunk_cells_for_run="$chunk_cells"

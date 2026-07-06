@@ -10,7 +10,6 @@ Each chunk has:
 - a copy (optionally downsampled) of control cells
 """
 
-from __future__ import annotations
 
 import argparse
 import gzip
@@ -250,19 +249,10 @@ def build_from_csv(
     }
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--csv", type=Path)
-    ap.add_argument("--h5ad", type=Path)
-    ap.add_argument("--pert-col", type=str, default="gene_target")
-    ap.add_argument("--outdir", type=Path, required=True)
-    ap.add_argument("--control-label", type=str, default="Non-Targeting")
-    ap.add_argument("--perturbations-per-chunk", type=int, default=128)
-    ap.add_argument("--min-cells-per-perturbation", type=int, default=30)
-    ap.add_argument("--max-controls-per-chunk", type=int, default=50000)
-    ap.add_argument("--control-sample-seed", type=int, default=0)
-    ap.add_argument("--chunk-size", type=int, default=300_000)
-    args = ap.parse_args()
+def run_analysis(args: argparse.Namespace) -> None:
+    args.csv = Path(args.csv) if args.csv is not None else None
+    args.h5ad = Path(args.h5ad) if args.h5ad is not None else None
+    args.outdir = Path(args.outdir)
 
     if bool(args.csv) == bool(args.h5ad):
         raise RuntimeError("Provide exactly one source: either --csv or --h5ad")
@@ -313,6 +303,48 @@ def main() -> None:
     print(f"Wrote {outdir / 'manifest.json'}")
     print(f"Wrote {result['chunk_summary_tsv']}")
     print(f"n_chunks={result['n_chunks']}")
+
+
+def parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--csv", type=Path)
+    ap.add_argument("--h5ad", type=Path)
+    ap.add_argument("--pert-col", type=str, default="gene_target")
+    ap.add_argument("--outdir", type=Path, required=True)
+    ap.add_argument("--control-label", type=str, default="Non-Targeting")
+    ap.add_argument("--perturbations-per-chunk", type=int, default=128)
+    ap.add_argument("--min-cells-per-perturbation", type=int, default=30)
+    ap.add_argument("--max-controls-per-chunk", type=int, default=50000)
+    ap.add_argument("--control-sample-seed", type=int, default=0)
+    ap.add_argument("--chunk-size", type=int, default=300_000)
+    return ap.parse_args()
+
+
+def args_from_snakemake(snk) -> argparse.Namespace:
+    source_path = Path(str(snk.input.source))
+    source_type = str(snk.params.source_type)
+    csv_path = source_path if source_type == "csv" else None
+    h5ad_path = source_path if source_type != "csv" else None
+    return argparse.Namespace(
+        csv=csv_path,
+        h5ad=h5ad_path,
+        pert_col=str(snk.params.pert_col),
+        outdir=Path(str(Path(str(snk.output.manifest)).parent)),
+        control_label=str(snk.params.control),
+        perturbations_per_chunk=int(snk.params.ppc),
+        min_cells_per_perturbation=int(snk.params.min_cells),
+        max_controls_per_chunk=int(snk.params.max_controls),
+        control_sample_seed=int(snk.params.control_seed),
+        chunk_size=int(snk.params.read_chunk),
+    )
+
+
+def main() -> None:
+    if "snakemake" in globals():
+        args = args_from_snakemake(snakemake)
+    else:
+        args = parse_cli_args()
+    run_analysis(args)
 
 
 if __name__ == "__main__":

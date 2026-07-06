@@ -82,17 +82,42 @@ rule run_ps_method:
         summary=str(RESULTS_DIR / "{dataset}" / "ps" / "perturbation_summary.tsv.gz"),
         meta=str(RESULTS_DIR / "{dataset}" / "ps" / "method_meta.json")
     params:
+        dataset=lambda wc: wc.dataset,
         outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "ps")
     resources:
         mem_mb=32000,
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/13_merge_ps_chunk_results.py "
-            "--dataset {wildcards.dataset} "
-            "--chunk-cell-scores {input.cell_scores} "
-            "--chunk-summary {input.summary} "
-            "--outdir {params.outdir}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "13_merge_ps_chunk_results.py")
+
+
+rule run_ps_postprocess_de:
+    input:
+        cell_scores=str(RESULTS_DIR / "{dataset}" / "ps" / "cell_scores.tsv.gz"),
+        h5ad=lambda wc: CFG["datasets"][wc.dataset]["h5ad"]
+    output:
+        done=str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "done.txt"),
+        de=str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "perturbation_differential_genes.tsv.gz"),
+        selected=str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "selected_ps_cells.tsv.gz"),
+        summary=str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "perturbation_selection_counts.tsv.gz"),
+        meta=str(RESULTS_DIR / "{dataset}" / "ps" / "de" / "de_meta.json")
+    params:
+        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "ps" / "de"),
+        pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
+        control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
+        score_col=CFG.get("ps_de", {}).get("score_column", "ps_score"),
+        score_mode=CFG.get("ps_de", {}).get("score_mode", "top_positive"),
+        score_quantile=CFG.get("ps_de", {}).get("score_quantile", 0.90),
+        min_selected=CFG.get("ps_de", {}).get("min_selected_cells", 20),
+        max_control_cells=CFG.get("ps_de", {}).get("max_control_cells", 50000),
+        n_top_de_genes=CFG.get("ps_de", {}).get("n_top_de_genes", 200),
+        random_seed=CFG.get("ps_de", {}).get("random_seed", 0)
+    resources:
+        mem_mb=180000,
+        runtime=660
+    conda:
+        CFG["conda_env"]
+    script:
+        str(BASE_DIR / "scripts" / "17_run_ps_postprocess_de.py")

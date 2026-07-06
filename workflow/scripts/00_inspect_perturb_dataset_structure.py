@@ -5,7 +5,6 @@ This script is intended for running in external folders.
 It checks .h5ad structure and optional guide-calls CSV compatibility.
 """
 
-from __future__ import annotations
 
 import argparse
 import json

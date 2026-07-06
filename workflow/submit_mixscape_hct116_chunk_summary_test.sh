@@ -13,4 +13,4 @@ SLURM_ACCOUNT=your_slurm_account \
 TARGET_RULE=results/mixscape_pipeline/HCT116/chunk_summary.tsv \
 JOBS=20 \
 LOCAL_CORES=2 \
-sbatch --partition=shortq --qos=shortq --account=your_slurm_account workflow/run_snakemake_master_longq_executor_slurm.sh
+sbatch --partition=mediumq --qos=mediumq --account=your_slurm_account workflow/run_snakemake_master_longq_executor_slurm.sh

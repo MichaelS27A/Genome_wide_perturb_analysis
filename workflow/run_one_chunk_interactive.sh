@@ -46,6 +46,10 @@ if ! command -v sbatch >/dev/null 2>&1; then
   exit 1
 fi
 
+# Avoid user-site Python packages (e.g., ~/.local snakemake) shadowing
+# workflow/runtime dependencies inside rule jobs.
+export PYTHONNOUSERSITE=1
+
 echo "[step] unlock"
 snakemake -s "$SNAKEFILE" --configfile "$CONFIGFILE" --unlock || true
 

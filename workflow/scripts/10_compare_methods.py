@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Compare Mixscape, Mixscale and PS outputs for one dataset."""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -24,16 +23,13 @@ def _z(x: pd.Series) -> pd.Series:
     return (x - float(x.mean())) / sd
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--dataset", required=True)
-    ap.add_argument("--mixscape-stats", type=Path, required=True)
-    ap.add_argument("--mixscale-cell-scores", type=Path, required=True)
-    ap.add_argument("--mixscale-de", type=Path, required=True)
-    ap.add_argument("--ps-cell-scores", type=Path, required=True)
-    ap.add_argument("--ps-summary", type=Path, required=True)
-    ap.add_argument("--outdir", type=Path, required=True)
-    args = ap.parse_args()
+def run_analysis(args: argparse.Namespace) -> None:
+    args.mixscape_stats = Path(args.mixscape_stats)
+    args.mixscale_cell_scores = Path(args.mixscale_cell_scores)
+    args.mixscale_de = Path(args.mixscale_de)
+    args.ps_cell_scores = Path(args.ps_cell_scores)
+    args.ps_summary = Path(args.ps_summary)
+    args.outdir = Path(args.outdir)
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -106,6 +102,38 @@ def main() -> None:
         },
     }
     (args.outdir / "method_meta.json").write_text(json.dumps(meta, indent=2))
+
+
+def parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--dataset", required=True)
+    ap.add_argument("--mixscape-stats", type=Path, required=True)
+    ap.add_argument("--mixscale-cell-scores", type=Path, required=True)
+    ap.add_argument("--mixscale-de", type=Path, required=True)
+    ap.add_argument("--ps-cell-scores", type=Path, required=True)
+    ap.add_argument("--ps-summary", type=Path, required=True)
+    ap.add_argument("--outdir", type=Path, required=True)
+    return ap.parse_args()
+
+
+def args_from_snakemake(snk) -> argparse.Namespace:
+    return argparse.Namespace(
+        dataset=str(snk.params.dataset),
+        mixscape_stats=Path(str(snk.input.mixscape_stats)),
+        mixscale_cell_scores=Path(str(snk.input.mixscale_cell)),
+        mixscale_de=Path(str(snk.input.mixscale_de)),
+        ps_cell_scores=Path(str(snk.input.ps_cell)),
+        ps_summary=Path(str(snk.input.ps_summary)),
+        outdir=Path(str(snk.params.outdir)),
+    )
+
+
+def main() -> None:
+    if "snakemake" in globals():
+        args = args_from_snakemake(snakemake)
+    else:
+        args = parse_cli_args()
+    run_analysis(args)
 
 
 if __name__ == "__main__":

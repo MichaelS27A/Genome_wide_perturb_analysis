@@ -23,6 +23,7 @@ SLURM_ACCOUNT="${SLURM_ACCOUNT:-lab_gsf}"
 
 DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
 DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
+BUILD_CHUNK_MANIFESTS_MEM_MB="${BUILD_CHUNK_MANIFESTS_MEM_MB:-}"
 # ------------------------------
 
 if [[ ! -f "$SNAKEFILE" ]]; then
@@ -41,6 +42,10 @@ if ! command -v sbatch >/dev/null 2>&1; then
   echo "ERROR: sbatch not found on PATH" >&2
   exit 1
 fi
+
+# Avoid user-site Python packages (e.g., ~/.local snakemake) shadowing
+# workflow/runtime dependencies inside rule jobs.
+export PYTHONNOUSERSITE=1
 
 echo "[step] unlock"
 snakemake -s "$SNAKEFILE" --configfile "$CONFIGFILE" --unlock || true
@@ -66,6 +71,9 @@ CMD=(
 
 if [[ -n "$SLURM_QOS" ]]; then
   CMD+=(--slurm-qos "$SLURM_QOS")
+fi
+if [[ -n "$BUILD_CHUNK_MANIFESTS_MEM_MB" ]]; then
+  CMD+=(--set-resources "build_chunk_manifests:mem_mb=${BUILD_CHUNK_MANIFESTS_MEM_MB}")
 fi
 if [[ "$TARGET_RULE" != "all" ]]; then
   CMD+=("$TARGET_RULE")

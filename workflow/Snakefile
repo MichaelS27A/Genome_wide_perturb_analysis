@@ -13,6 +13,7 @@ include: os.path.join("rules", "audit.smk")
 include: os.path.join("rules", "mixscape.smk")
 include: os.path.join("rules", "mixscale.smk")
 include: os.path.join("rules", "ps.smk")
+include: os.path.join("rules", "global_de_ora.smk")
 include: os.path.join("rules", "comparison.smk")
 
 localrules: all

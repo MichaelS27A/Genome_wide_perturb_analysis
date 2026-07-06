@@ -9,11 +9,8 @@ checkpoint build_chunk_manifests:
         summary=str(RESULTS_DIR / "{dataset}" / "chunk_summary.tsv"),
         chunkdir=directory(str(RESULTS_DIR / "{dataset}" / "chunks"))
     params:
-        source_args=lambda wc: (
-            f"--csv {CFG['datasets'][wc.dataset]['guide_calls_csv']}"
-            if CFG["datasets"][wc.dataset].get("guide_calls_csv")
-            else f"--h5ad {CFG['datasets'][wc.dataset]['h5ad']} --pert-col {CFG['datasets'][wc.dataset].get('pert_col', 'gene_target')}"
-        ),
+        source_type=lambda wc: "csv" if CFG["datasets"][wc.dataset].get("guide_calls_csv") else "h5ad",
+        pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         ppc=CFG["chunking"]["perturbations_per_chunk"],
         min_cells=CFG["chunking"]["min_cells_per_perturbation"],
@@ -21,22 +18,12 @@ checkpoint build_chunk_manifests:
         control_seed=CFG["chunking"].get("control_sample_seed", 0),
         read_chunk=CFG["chunking"]["csv_read_chunk_size"]
     resources:
-        mem_mb=64000,
+        mem_mb=350000,
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/04_build_mixscape_chunk_manifests.py "
-            "{params.source_args} "
-            "--outdir {RESULTS_DIR}/{wildcards.dataset} "
-            "--control-label {params.control} "
-            "--perturbations-per-chunk {params.ppc} "
-            "--min-cells-per-perturbation {params.min_cells} "
-            "--max-controls-per-chunk {params.max_controls} "
-            "--control-sample-seed {params.control_seed} "
-            "--chunk-size {params.read_chunk}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "04_build_mixscape_chunk_manifests.py")
 
 
 rule run_chunk_mixscape:
@@ -56,38 +43,22 @@ rule run_chunk_mixscape:
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         pca_dims=CFG["mixscape"]["pca_dims"],
         batch_size=CFG["mixscape"].get("batch_size", 0),
+        auto_batch_max_elements=CFG["mixscape"].get("auto_batch_max_elements", 800000000),
+        auto_batch_size=CFG["mixscape"].get("auto_batch_size", 2000),
+        csc_max_genes=CFG["mixscape"].get("csc_max_genes", 1000),
+        csc_max_total_nnz=CFG["mixscape"].get("csc_max_total_nnz", 120000000),
         normalize_target_sum=CFG["mixscape"].get("normalize_target_sum", 10000),
         logfc_threshold=CFG["mixscape"].get("logfc_threshold", 0.10),
         pval_cutoff=CFG["mixscape"].get("pval_cutoff", 0.05),
-        write_subset_flag="--write-subset" if CFG["mixscape"]["write_subset_h5ad"] else "",
-        pca_gene_flag="--use-hvg-for-pca" if CFG["mixscape"].get("use_hvg_for_pca", False) else ""
+        write_subset=CFG["mixscape"]["write_subset_h5ad"],
+        use_hvg_for_pca=CFG["mixscape"].get("use_hvg_for_pca", False)
     resources:
-        mem_mb=180000,
+        mem_mb=200000,
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "export OMP_NUM_THREADS=1; "
-            "export OPENBLAS_NUM_THREADS=1; "
-            "export MKL_NUM_THREADS=1; "
-            "export VECLIB_MAXIMUM_THREADS=1; "
-            "export NUMEXPR_NUM_THREADS=1; "
-            "python {BASE_DIR}/scripts/05_run_mixscape_chunk.py "
-            "--h5ad {input.h5ad} "
-            "--chunk-cells {input.chunk_cells} "
-            "--output-dir {params.outdir} "
-            "--pert-col {params.pert_col} "
-            "--control-label {params.control} "
-            "--pca-dims {params.pca_dims} "
-            "--batch-size {params.batch_size} "
-            "--normalize-target-sum {params.normalize_target_sum} "
-            "--mixscape-logfc-threshold {params.logfc_threshold} "
-            "--mixscape-pval-cutoff {params.pval_cutoff} "
-            "--chunk-id {wildcards.chunk} "
-            "{params.pca_gene_flag} "
-            "{params.write_subset_flag}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "05_run_mixscape_chunk.py")
 
 
 rule merge_dataset_results:
@@ -110,15 +81,8 @@ rule merge_dataset_results:
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/06_merge_mixscape_chunk_results.py "
-            "--chunk-stats {input.stats} "
-            "--chunk-effects {input.effects} "
-            "--chunk-selected-cells {input.selected_cells} "
-            "--outdir {params.outdir} "
-            "--n-clusters {params.n_clusters}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "06_merge_mixscape_chunk_results.py")
 
 
 rule postprocess_dataset:
@@ -145,16 +109,5 @@ rule postprocess_dataset:
         runtime=660
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/07_perturbation_embedding_and_de.py "
-            "--h5ad {input.h5ad} "
-            "--selected-cells {input.selected_cells} "
-            "--outdir {params.outdir} "
-            "--pert-col {params.pert_col} "
-            "--control-label {params.control} "
-            "--min-selected-cells {params.min_selected} "
-            "--max-control-cells {params.max_controls} "
-            "--n-top-de-genes {params.n_top} "
-            "--random-seed {params.seed}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "07_perturbation_embedding_and_de.py")

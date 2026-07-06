@@ -2,7 +2,7 @@
 #SBATCH --job-name=snakemake_master_slurmexec
 #SBATCH --partition=mediumq
 #SBATCH --qos=mediumq
-#SBATCH --time=47:00:00
+#SBATCH --time=11:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --account=lab_gsf
@@ -38,6 +38,7 @@ TARGET_RULE="${TARGET_RULE:-all}"
 JOBS="${JOBS:-50}"
 LOCAL_CORES="${LOCAL_CORES:-1}"
 
+# Child jobs default to shortq; master job queue is controlled by SBATCH lines above.
 SLURM_PARTITION="${SLURM_PARTITION:-shortq}"
 SLURM_QOS="${SLURM_QOS:-shortq}"
 SLURM_ACCOUNT="${SLURM_ACCOUNT:-lab_gsf}"
@@ -45,6 +46,7 @@ SLURM_ACCOUNT="${SLURM_ACCOUNT:-lab_gsf}"
 DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
 DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
 LATENCY_WAIT="${LATENCY_WAIT:-60}"
+BUILD_CHUNK_MANIFESTS_MEM_MB="${BUILD_CHUNK_MANIFESTS_MEM_MB:-}"
 
 CONDA_BASE="/nobackup/lab_gsf/mschoeber/miniconda3"
 CONDA_ENV="snakemake"
@@ -76,6 +78,10 @@ if ! command -v sbatch >/dev/null 2>&1; then
   exit 1
 fi
 
+# Avoid user-site Python packages (e.g., ~/.local snakemake) shadowing
+# workflow/runtime dependencies inside rule jobs.
+export PYTHONNOUSERSITE=1
+
 echo "[step] unlock"
 snakemake -s "$SNAKEFILE" --configfile "$CONFIGFILE" --unlock || true
 
@@ -100,6 +106,9 @@ CMD=(
 
 if [[ -n "$SLURM_QOS" ]]; then
   CMD+=(--slurm-qos "$SLURM_QOS")
+fi
+if [[ -n "$BUILD_CHUNK_MANIFESTS_MEM_MB" ]]; then
+  CMD+=(--set-resources "build_chunk_manifests:mem_mb=${BUILD_CHUNK_MANIFESTS_MEM_MB}")
 fi
 if [[ "$TARGET_RULE" != "all" ]]; then
   CMD+=("$TARGET_RULE")

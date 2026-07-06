@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Merge chunk-level Mixscape outputs into dataset-level summaries."""
 
-from __future__ import annotations
 
 import argparse
 import gzip
@@ -18,14 +17,11 @@ def load_table(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, sep="\t")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--chunk-stats", nargs="+", type=Path, required=True)
-    ap.add_argument("--chunk-effects", nargs="+", type=Path, required=True)
-    ap.add_argument("--chunk-selected-cells", nargs="+", type=Path, required=True)
-    ap.add_argument("--outdir", type=Path, required=True)
-    ap.add_argument("--n-clusters", type=int, default=20)
-    args = ap.parse_args()
+def run_analysis(args: argparse.Namespace) -> None:
+    args.chunk_stats = [Path(str(p)) for p in args.chunk_stats]
+    args.chunk_effects = [Path(str(p)) for p in args.chunk_effects]
+    args.chunk_selected_cells = [Path(str(p)) for p in args.chunk_selected_cells]
+    args.outdir = Path(args.outdir)
 
     args.outdir.mkdir(parents=True, exist_ok=True)
 
@@ -109,6 +105,34 @@ def main() -> None:
     }
     (args.outdir / "merge_meta.json").write_text(json.dumps(meta, indent=2))
     print(f"Wrote {args.outdir / 'merge_meta.json'}")
+
+
+def parse_cli_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--chunk-stats", nargs="+", type=Path, required=True)
+    ap.add_argument("--chunk-effects", nargs="+", type=Path, required=True)
+    ap.add_argument("--chunk-selected-cells", nargs="+", type=Path, required=True)
+    ap.add_argument("--outdir", type=Path, required=True)
+    ap.add_argument("--n-clusters", type=int, default=20)
+    return ap.parse_args()
+
+
+def args_from_snakemake(snk) -> argparse.Namespace:
+    return argparse.Namespace(
+        chunk_stats=[Path(str(p)) for p in list(snk.input.stats)],
+        chunk_effects=[Path(str(p)) for p in list(snk.input.effects)],
+        chunk_selected_cells=[Path(str(p)) for p in list(snk.input.selected_cells)],
+        outdir=Path(str(snk.params.outdir)),
+        n_clusters=int(snk.params.n_clusters),
+    )
+
+
+def main() -> None:
+    if "snakemake" in globals():
+        args = args_from_snakemake(snakemake)
+    else:
+        args = parse_cli_args()
+    run_analysis(args)
 
 
 if __name__ == "__main__":

@@ -5,15 +5,12 @@ rule audit_dataset_structure:
         json=str(RESULTS_DIR / "{dataset}" / "inspection" / "{dataset}.json"),
         summary=str(RESULTS_DIR / "{dataset}" / "inspection" / "summary.tsv")
     params:
+        dataset=lambda wc: wc.dataset,
         outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "inspection")
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/00b_batch_inspect_dataset_structures.py "
-            "--dataset {wildcards.dataset}={input.h5ad} "
-            "--outdir {params.outdir}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "00b_batch_inspect_dataset_structures.py")
 
 
 rule validate_dataset_audit:
@@ -22,15 +19,10 @@ rule validate_dataset_audit:
     output:
         ready=str(RESULTS_DIR / "{dataset}" / "inspection" / "ready.ok")
     params:
-        require_ready="--require-ready" if CFG.get("audit", {}).get("require_ready", True) else "",
-        require_raw="--require-raw-source" if CFG.get("audit", {}).get("require_raw_source", True) else ""
+        dataset=lambda wc: wc.dataset,
+        require_ready=CFG.get("audit", {}).get("require_ready", True),
+        require_raw=CFG.get("audit", {}).get("require_raw_source", True),
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/00c_validate_audit_ready.py "
-            "--audit-json {input.json} "
-            "--dataset {wildcards.dataset} "
-            "{params.require_ready} {params.require_raw} && "
-            "echo ok > {output.ready}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "00c_validate_audit_ready.py")

@@ -10,17 +10,9 @@ rule compare_methods:
         summary=str(RESULTS_DIR / "{dataset}" / "comparison" / "comparison_summary.tsv"),
         meta=str(RESULTS_DIR / "{dataset}" / "comparison" / "method_meta.json")
     params:
+        dataset=lambda wc: wc.dataset,
         outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "comparison")
     conda:
         CFG["conda_env"]
-    shell:
-        (
-            "python {BASE_DIR}/scripts/10_compare_methods.py "
-            "--dataset {wildcards.dataset} "
-            "--mixscape-stats {input.mixscape_stats} "
-            "--mixscale-cell-scores {input.mixscale_cell} "
-            "--mixscale-de {input.mixscale_de} "
-            "--ps-cell-scores {input.ps_cell} "
-            "--ps-summary {input.ps_summary} "
-            "--outdir {params.outdir}"
-        )
+    script:
+        str(BASE_DIR / "scripts" / "10_compare_methods.py")
