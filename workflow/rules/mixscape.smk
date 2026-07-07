@@ -108,6 +108,6 @@ rule postprocess_dataset:
         mem_mb=180000,
         runtime=660
     conda:
-        CFG["conda_env"]
+        CFG["postprocess_conda_env"]
     script:
         str(BASE_DIR / "scripts" / "07_perturbation_embedding_and_de.py")

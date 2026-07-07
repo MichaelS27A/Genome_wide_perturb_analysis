@@ -111,6 +111,7 @@ DEFAULT_CONFIG = {
     },
     "results_dir": str(ROOT_DIR / "results" / "mixscape_pipeline"),
     "conda_env": "envs/preprocessing.yaml",
+    "postprocess_conda_env": "envs/postprocess.yaml",
     "r_env": "envs/r_mix_methods.yaml",
     "rscript_bin": "Rscript",
 }
@@ -154,6 +155,11 @@ if "conda_env" in CFG and CFG["conda_env"]:
     _conda_env = Path(CFG["conda_env"])
     if not _conda_env.is_absolute():
         CFG["conda_env"] = str((BASE_DIR / _conda_env).resolve())
+
+if "postprocess_conda_env" in CFG and CFG["postprocess_conda_env"]:
+    _postprocess_conda_env = Path(CFG["postprocess_conda_env"])
+    if not _postprocess_conda_env.is_absolute():
+        CFG["postprocess_conda_env"] = str((BASE_DIR / _postprocess_conda_env).resolve())
 
 if "r_env" in CFG and CFG["r_env"]:
     _r_env = Path(CFG["r_env"])

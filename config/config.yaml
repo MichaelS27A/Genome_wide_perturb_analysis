@@ -75,7 +75,7 @@ global_de:
 
 ora:
   gmt_files: []
-  streams: [mixscape, global_de, ps]
+  streams: [mixscape, global_de]
   fdr_alpha: 0.05
   min_abs_logfc: 0.25
   min_deg_genes: 10
@@ -131,5 +131,6 @@ methods:
 
 results_dir: ../results/mixscape_pipeline
 conda_env: envs/preprocessing.yaml
+postprocess_conda_env: envs/postprocess.yaml
 r_env: envs/r_mix_methods.yaml
 rscript_bin: Rscript

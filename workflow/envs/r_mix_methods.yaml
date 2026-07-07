@@ -4,13 +4,14 @@ channels:
   - bioconda
   - defaults
 dependencies:
-  - r-base=4.3
+  - r-base=4.2
   - r-optparse
   - r-jsonlite
   - r-matrix
   - r-seurat
   - r-reticulate
   - r-devtools
+  - bioconductor-scmageck
   - pip
   - python=3.10
   - pip:

@@ -170,6 +170,8 @@ properties:
     type: string
   conda_env:
     type: string
+  postprocess_conda_env:
+    type: string
   r_env:
     type: string
   rscript_bin:

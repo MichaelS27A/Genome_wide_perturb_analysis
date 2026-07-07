@@ -1,0 +1,20 @@
+name: postprocess_ultra_minimal
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python=3.12
+  - snakemake=9.23.1
+  - python-igraph
+  - pip
+  - pip:
+    - numpy
+    - pandas
+    - scipy
+    - scanpy
+    - anndata
+    - pertpy @ git+https://github.com/scverse/pertpy.git@1.1.1
+    - tqdm
