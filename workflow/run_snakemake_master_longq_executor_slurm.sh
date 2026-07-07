@@ -47,6 +47,9 @@ DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
 DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
 LATENCY_WAIT="${LATENCY_WAIT:-60}"
 BUILD_CHUNK_MANIFESTS_MEM_MB="${BUILD_CHUNK_MANIFESTS_MEM_MB:-}"
+# Default to mtime-only reruns for debug iterations; override when strict
+# provenance-based reruns are desired.
+RERUN_TRIGGERS="${RERUN_TRIGGERS:-mtime}"
 
 CONDA_BASE="/nobackup/lab_gsf/mschoeber/miniconda3"
 CONDA_ENV="snakemake"
@@ -85,6 +88,12 @@ export PYTHONNOUSERSITE=1
 echo "[step] unlock"
 snakemake -s "$SNAKEFILE" --configfile "$CONFIGFILE" --unlock || true
 
+RERUN_TRIGGERS_NORMALIZED="${RERUN_TRIGGERS//,/ }"
+read -r -a RERUN_TRIGGER_ARGS <<< "$RERUN_TRIGGERS_NORMALIZED"
+if [[ "${#RERUN_TRIGGER_ARGS[@]}" -eq 0 ]]; then
+  RERUN_TRIGGER_ARGS=("mtime")
+fi
+
 CMD=(
   snakemake
   -s "$SNAKEFILE"
@@ -100,6 +109,7 @@ CMD=(
   "runtime=$DEFAULT_RUNTIME_MIN"
   "cpus_per_task=1"
   --latency-wait "$LATENCY_WAIT"
+  --rerun-triggers "${RERUN_TRIGGER_ARGS[@]}"
   --rerun-incomplete
   --keep-going
 )

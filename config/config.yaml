@@ -117,17 +117,17 @@ methods:
     max_cells: 0
     random_seed: 0
   ps:
-    enabled: false
+    enabled: true
     min_cells_per_perturbation: 30
     max_perturbations: 0
     max_cells: 0
     random_seed: 0
   global_de:
-    enabled: false
+    enabled: true
   ora:
-    enabled: false
+    enabled: true
   comparison:
-    enabled: false
+    enabled: true
 
 results_dir: ../results/mixscape_pipeline
 conda_env: envs/preprocessing.yaml

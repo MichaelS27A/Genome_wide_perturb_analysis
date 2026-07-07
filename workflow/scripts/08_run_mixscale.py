@@ -28,22 +28,56 @@ from anndata._io.specs import read_elem
 from scipy import sparse
 
 
-def _open_minimal_backed_adata(h5ad_path: Path) -> tuple[ad.AnnData, h5py.File]:
-    """Open H5AD without eagerly materializing heavy optional groups (e.g. layers)."""
+def _open_minimal_backed_adata(h5ad_path: Path) -> tuple[ad.AnnData, h5py.File | None]:
+    """Open H5AD without eagerly materializing heavy optional groups (e.g. layers).
+
+    Falls back to anndata backed reader for files whose X metadata does not expose
+    the sparse encoding attributes expected by sparse_dataset().
+    """
     h5 = h5py.File(h5ad_path, "r")
+    x_obj = h5.get("X")
+    has_sparse_attrs = (
+        isinstance(x_obj, h5py.Group)
+        and ("encoding-type" in x_obj.attrs or "h5sparse_format" in x_obj.attrs)
+    )
+    if not has_sparse_attrs:
+        h5.close()
+        return ad.read_h5ad(h5ad_path, backed="r"), None
     try:
         X = sparse_dataset(h5["X"])
         obs = read_elem(h5["obs"])
         var = read_elem(h5["var"])
         adata = ad.AnnData(X=X, obs=obs, var=var)
         return adata, h5
-    except Exception:
+    except Exception as e:
         h5.close()
-        raise
+        msg = str(e)
+        if "encoding-type" not in msg and "h5sparse_format" not in msg:
+            raise
+        # Compatibility path for variant/legacy H5AD matrix encoding.
+        adata = ad.read_h5ad(h5ad_path, backed="r")
+        return adata, None
 
 
-def _read_csc_nnz_per_gene(h5: h5py.File) -> tuple[np.ndarray | None, int]:
+def _close_backing_resources(adata: ad.AnnData, h5_handle: h5py.File | None) -> None:
+    if h5_handle is not None:
+        try:
+            h5_handle.close()
+        except Exception:
+            pass
+        return
+    file_handle = getattr(adata, "file", None)
+    if file_handle is not None:
+        try:
+            file_handle.close()
+        except Exception:
+            pass
+
+
+def _read_csc_nnz_per_gene(h5: h5py.File | None) -> tuple[np.ndarray | None, int]:
     """Read per-gene nnz for CSC X if available; returns (nnz_per_gene, bytes_per_nnz)."""
+    if h5 is None:
+        return None, 12
     try:
         xg = h5["X"]
         if "indptr" not in xg:
@@ -183,7 +217,7 @@ def _load_by_barcodes(
     obs_names = pd.Index(adata.obs_names.astype(str))
     keep = obs_names.isin(barcodes)
     if int(keep.sum()) == 0:
-        h5_handle.close()
+        _close_backing_resources(adata, h5_handle)
         raise RuntimeError("No overlap between chunk barcodes and adata.obs_names")
 
     work = adata
@@ -228,7 +262,7 @@ def _load_by_barcodes(
                 raise RuntimeError("Chunk subset fallback failed: no cells loaded")
             return ad.concat(parts, axis=0, join="outer", merge="same")
     finally:
-        h5_handle.close()
+        _close_backing_resources(adata, h5_handle)
 
 
 def _load_full_with_optional_subsample(h5ad_path: Path, max_cells: int, seed: int) -> ad.AnnData:
