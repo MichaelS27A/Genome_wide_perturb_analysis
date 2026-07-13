@@ -8,6 +8,7 @@ datasets:
     guide_calls_csv: ../HCT116_filtered_guide_calls_per_cell.csv.gz
     pert_col: gene_target
     control_label: Non-Targeting
+    target_perturbation_list: config/targets/priority_joint_targets_all_cell_lines.txt
 
   HEK293T:
     enabled: true
@@ -15,24 +16,31 @@ datasets:
     guide_calls_csv: ../HEK293T_filtered_guide_calls_per_cell.csv.gz
     pert_col: gene_target
     control_label: Non-Targeting
+    target_perturbation_list: config/targets/priority_joint_targets_all_cell_lines.txt
 
   STEMCELL:
     enabled: true
     h5ad: ../../StemCellPerturb/data/KOLF_Pan_Genome_QC_Filtered_no_Y.h5ad
     pert_col: gene_target
     control_label: NTC
+    # Do not cap genes for CSC-backed StemCell matrix; prior cap suppressed KO calls.
+    csc_max_genes: 0
+    csc_max_total_nnz: 0
+    target_perturbation_list: config/targets/priority_joint_targets_all_cell_lines.txt
 
   K562_GWPS_RAW_FULL:
     enabled: true
     h5ad: ../../Genome_Wide_Perturb_SEQ/data/safe_extract/K562_gwps_raw_singlecell_01.h5ad
     pert_col: gene
     control_label: non-targeting
+    target_perturbation_list: config/targets/priority_joint_targets_all_cell_lines.txt
 
   RPE1_RAW_FULL:
     enabled: true
     h5ad: ../../Genome_Wide_Perturb_SEQ/data/safe_extract/rpe1_raw_singlecell_01.h5ad
     pert_col: gene
     control_label: non-targeting
+    target_perturbation_list: config/targets/priority_joint_targets_all_cell_lines.txt
 
 chunking:
   perturbations_per_chunk: 128
@@ -45,8 +53,8 @@ mixscape:
   pca_dims: 20
   write_subset_h5ad: false
   use_hvg_for_pca: false
-  csc_max_genes: 1000
-  csc_max_total_nnz: 120000000
+  csc_max_genes: 0
+  csc_max_total_nnz: 0
   batch_size: 256
   normalize_target_sum: 10000
   logfc_threshold: 0.10
@@ -54,8 +62,8 @@ mixscape:
 
 mixscale:
   use_hvg_for_pca: false
-  csc_max_genes: 1000
-  csc_max_total_nnz: 120000000
+  csc_max_genes: 0
+  csc_max_total_nnz: 0
   normalize_target_sum: 10000
   logfc_threshold: 0.10
   pval_cutoff: 0.05
@@ -95,6 +103,29 @@ ps_de:
 clustering:
   n_clusters: 20
 
+target_random_clustering:
+  deg_streams: [global_de, mixscape, mixscale]
+  random_controls_match_target_count: true
+  n_random_controls: 0
+  min_abs_effect: 0.25
+  max_pval_adj: 0.05
+  rank_significant_max: 100
+  top_genes_per_perturbation: 0
+  min_feature_genes: 20
+  assignment_logic: intersection
+  mixscale_score_threshold: 0.0
+  max_control_cells: 50000
+  expression_normalize_target_sum: 10000
+  expression_log1p: true
+  heatmap_max_genes: 200
+  heatmap_gene_order: variance
+  volcano_max_targets: 20
+  recurrent_gene_fraction: 0.25
+  volcano_stream_priority: [global_de, mixscape, ps]
+  linkage: average
+  distance: euclidean
+  random_seed: 0
+
 postprocess:
   min_selected_cells: 20
   max_control_cells_for_de: 50000
@@ -117,7 +148,7 @@ methods:
     max_cells: 0
     random_seed: 0
   ps:
-    enabled: true
+    enabled: false
     min_cells_per_perturbation: 30
     max_perturbations: 0
     max_cells: 0
@@ -125,8 +156,10 @@ methods:
   global_de:
     enabled: true
   ora:
-    enabled: true
+    enabled: false
   comparison:
+    enabled: false
+  target_random_clustering:
     enabled: true
 
 results_dir: ../results/mixscape_pipeline

@@ -43,8 +43,12 @@ rule run_chunk_mixscale_method:
         batch_size=CFG.get("mixscale", {}).get("batch_size", 0),
         auto_batch_max_elements=CFG.get("mixscale", {}).get("auto_batch_max_elements", 800000000),
         auto_batch_size=CFG.get("mixscale", {}).get("auto_batch_size", 2000),
-        csc_max_genes=CFG.get("mixscale", {}).get("csc_max_genes", 1000),
-        csc_max_total_nnz=CFG.get("mixscale", {}).get("csc_max_total_nnz", 120000000),
+        csc_max_genes=lambda wc: CFG["datasets"][wc.dataset].get(
+            "csc_max_genes", CFG.get("mixscale", {}).get("csc_max_genes", 0)
+        ),
+        csc_max_total_nnz=lambda wc: CFG["datasets"][wc.dataset].get(
+            "csc_max_total_nnz", CFG.get("mixscale", {}).get("csc_max_total_nnz", 0)
+        ),
         use_hvg_for_pca=CFG.get("mixscale", {}).get("use_hvg_for_pca", False)
     resources:
         mem_mb=200000,

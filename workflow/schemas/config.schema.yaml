@@ -23,6 +23,8 @@ properties:
           type: string
         control_label:
           type: string
+        target_perturbation_list:
+          type: string
   chunking:
     type: object
     additionalProperties: true
@@ -129,6 +131,60 @@ properties:
   clustering:
     type: object
     additionalProperties: true
+  target_random_clustering:
+    type: object
+    additionalProperties: true
+    properties:
+      deg_streams:
+        type: array
+        items:
+          type: string
+          enum: [global_de, mixscape, mixscale, ps]
+      random_controls_match_target_count:
+        type: boolean
+      n_random_controls:
+        type: integer
+      min_abs_effect:
+        type: number
+      max_pval_adj:
+        type: number
+      rank_significant_max:
+        type: integer
+      top_genes_per_perturbation:
+        type: integer
+      min_feature_genes:
+        type: integer
+      assignment_logic:
+        type: string
+        enum: [intersection, union]
+      mixscale_score_threshold:
+        type: number
+      max_control_cells:
+        type: integer
+      expression_normalize_target_sum:
+        type: number
+      expression_log1p:
+        type: boolean
+      heatmap_max_genes:
+        type: integer
+      heatmap_gene_order:
+        type: string
+        enum: [variance, absolute_mean]
+      volcano_max_targets:
+        type: integer
+      recurrent_gene_fraction:
+        type: number
+      volcano_stream_priority:
+        type: array
+        items:
+          type: string
+          enum: [global_de, mixscape, mixscale, ps]
+      linkage:
+        type: string
+      distance:
+        type: string
+      random_seed:
+        type: integer
   postprocess:
     type: object
     additionalProperties: true
@@ -164,6 +220,9 @@ properties:
         type: object
         additionalProperties: true
       comparison:
+        type: object
+        additionalProperties: true
+      target_random_clustering:
         type: object
         additionalProperties: true
   results_dir:

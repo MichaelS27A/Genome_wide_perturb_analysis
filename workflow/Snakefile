@@ -5,6 +5,7 @@ from snakemake.utils import min_version, validate
 min_version("8.20.1")
 
 WORKFLOW_DIR = Path(workflow.basedir).resolve()
+configfile: str((WORKFLOW_DIR.parent / "config" / "config.yaml").resolve())
 validate(config, str(WORKFLOW_DIR / "schemas" / "config.schema.yaml"))
 
 include: os.path.join("rules", "common.smk")
@@ -15,6 +16,7 @@ include: os.path.join("rules", "mixscale.smk")
 include: os.path.join("rules", "ps.smk")
 include: os.path.join("rules", "global_de_ora.smk")
 include: os.path.join("rules", "comparison.smk")
+include: os.path.join("rules", "target_random_clustering.smk")
 
 localrules: all
 

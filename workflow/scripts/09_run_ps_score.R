@@ -41,9 +41,10 @@ if (!is.null(opt$chunk_cells) && nzchar(opt$chunk_cells)) {
   barcodes <- unique(as.character(chunk_df$cell_barcode))
   if (length(barcodes) == 0) stop("No barcodes found in chunk-cells file")
   keep <- ad$obs_names$astype("str")$isin(r_to_py(barcodes))
-  idx <- np$where(keep)[[1]]
-  if (py_to_r(idx$size) == 0) stop("No overlap between chunk barcodes and adata.obs_names")
-  ad <- ad[idx, ]
+  idx <- as.integer(py_to_r(np$where(keep)[[1]]))
+  if (length(idx) == 0) stop("No overlap between chunk barcodes and adata.obs_names")
+  # Avoid backed AnnData "view of view" errors during later per-perturbation slicing.
+  ad <- ad[r_to_py(idx), ]$to_memory()
 }
 
 obs <- py_to_r(ad$obs)
@@ -80,11 +81,12 @@ for (pg in perts) {
   idx_pg <- as.integer(which(keep_pg) - 1L)
   ad_pg <- ad[r_to_py(idx_pg), ]
   x_pg <- ad_pg$X
-  shape_pg <- as.integer(py_to_r(x_pg$shape))
+  x_is_py <- inherits(x_pg, "python.builtin.object")
 
-  if (isTRUE(sp$issparse(x_pg))) {
+  if (x_is_py && isTRUE(sp$issparse(x_pg))) {
     # Convert via CSC to avoid the large extra row/col COO vectors.
     csc <- x_pg$tocsc()
+    shape_pg <- as.integer(py_to_r(csc$shape))
     mat_pg <- sparseMatrix(
       i = as.integer(py_to_r(csc$indices)) + 1L,
       p = as.integer(py_to_r(csc$indptr)),
@@ -92,8 +94,12 @@ for (pg in perts) {
       dims = shape_pg,
       index1 = TRUE
     )
-  } else {
+  } else if (x_is_py) {
     mat_pg <- as.matrix(py_to_r(x_pg))
+  } else if (inherits(x_pg, "sparseMatrix")) {
+    mat_pg <- methods::as(x_pg, "dgCMatrix")
+  } else {
+    mat_pg <- as.matrix(x_pg)
   }
 
   obs_pg <- obs[keep_pg, , drop = FALSE]

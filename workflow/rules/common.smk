@@ -77,6 +77,29 @@ DEFAULT_CONFIG = {
     "clustering": {
         "n_clusters": 20,
     },
+    "target_random_clustering": {
+        "deg_streams": ["global_de", "mixscape", "mixscale"],
+        "random_controls_match_target_count": True,
+        "n_random_controls": 0,
+        "min_abs_effect": 0.25,
+        "max_pval_adj": 0.05,
+        "rank_significant_max": 100,
+        "top_genes_per_perturbation": 0,
+        "min_feature_genes": 20,
+        "assignment_logic": "intersection",
+        "mixscale_score_threshold": 0.0,
+        "max_control_cells": 50000,
+        "expression_normalize_target_sum": 10000,
+        "expression_log1p": True,
+        "heatmap_max_genes": 200,
+        "heatmap_gene_order": "variance",
+        "volcano_max_targets": 20,
+        "recurrent_gene_fraction": 0.25,
+        "volcano_stream_priority": ["global_de", "mixscape", "ps"],
+        "linkage": "average",
+        "distance": "euclidean",
+        "random_seed": 0,
+    },
     "postprocess": {
         "min_selected_cells": 20,
         "max_control_cells_for_de": 50000,
@@ -108,6 +131,7 @@ DEFAULT_CONFIG = {
         "global_de": {"enabled": False},
         "ora": {"enabled": False},
         "comparison": {"enabled": False},
+        "target_random_clustering": {"enabled": False},
     },
     "results_dir": str(ROOT_DIR / "results" / "mixscape_pipeline"),
     "conda_env": "envs/preprocessing.yaml",
@@ -142,6 +166,8 @@ for _ds_name, _ds_cfg in CFG.get("datasets", {}).items():
         _ds_cfg["h5ad"] = str(resolve_from_root(_ds_cfg["h5ad"]))
     if _ds_cfg.get("guide_calls_csv"):
         _ds_cfg["guide_calls_csv"] = str(resolve_from_root(_ds_cfg["guide_calls_csv"]))
+    if _ds_cfg.get("target_perturbation_list"):
+        _ds_cfg["target_perturbation_list"] = str(resolve_from_root(_ds_cfg["target_perturbation_list"]))
 
 if CFG.get("results_dir"):
     CFG["results_dir"] = str(resolve_from_root(CFG["results_dir"]))
@@ -192,11 +218,60 @@ PS_ENABLED = method_enabled("ps")
 GLOBAL_DE_ENABLED = method_enabled("global_de")
 ORA_ENABLED = method_enabled("ora")
 COMPARISON_ENABLED = method_enabled("comparison")
+TARGET_RANDOM_CLUSTERING_ENABLED = method_enabled("target_random_clustering")
 
 if COMPARISON_ENABLED:
     missing = [m for m in ("mixscape", "mixscale", "ps") if not method_enabled(m)]
     if missing:
         raise ValueError(f"methods.comparison requires enabled methods: {missing}")
+
+VALID_TARGET_CLUSTER_DE_STREAMS = {"global_de", "mixscape", "mixscale", "ps"}
+TARGET_CLUSTER_DE_STREAMS = []
+if TARGET_RANDOM_CLUSTERING_ENABLED:
+    configured_streams = CFG.get("target_random_clustering", {}).get(
+        "deg_streams",
+        ["global_de", "mixscape", "mixscale"],
+    )
+    TARGET_CLUSTER_DE_STREAMS = [str(s).strip().lower() for s in configured_streams if str(s).strip()]
+    TARGET_CLUSTER_DE_STREAMS = list(dict.fromkeys(TARGET_CLUSTER_DE_STREAMS))
+
+if TARGET_RANDOM_CLUSTERING_ENABLED:
+    if not TARGET_CLUSTER_DE_STREAMS:
+        raise ValueError(
+            "methods.target_random_clustering.enabled=true but "
+            "target_random_clustering.deg_streams is empty."
+        )
+    invalid_streams = sorted(set(TARGET_CLUSTER_DE_STREAMS) - VALID_TARGET_CLUSTER_DE_STREAMS)
+    if invalid_streams:
+        raise ValueError(
+            "target_random_clustering.deg_streams has invalid values: "
+            f"{invalid_streams}. Allowed: {sorted(VALID_TARGET_CLUSTER_DE_STREAMS)}"
+        )
+    if "global_de" in TARGET_CLUSTER_DE_STREAMS and not GLOBAL_DE_ENABLED:
+        raise ValueError("target_random_clustering.deg_streams includes 'global_de' but methods.global_de.enabled=false")
+    if "mixscape" in TARGET_CLUSTER_DE_STREAMS and not MIXSCAPE_ENABLED:
+        raise ValueError("target_random_clustering.deg_streams includes 'mixscape' but methods.mixscape.enabled=false")
+    if "mixscale" in TARGET_CLUSTER_DE_STREAMS and not MIXSCALE_ENABLED:
+        raise ValueError("target_random_clustering.deg_streams includes 'mixscale' but methods.mixscale.enabled=false")
+    if "ps" in TARGET_CLUSTER_DE_STREAMS and not PS_ENABLED:
+        raise ValueError("target_random_clustering.deg_streams includes 'ps' but methods.ps.enabled=false")
+    # Expression arm requires KO-assigned cells from both methods.
+    if not MIXSCAPE_ENABLED or not MIXSCALE_ENABLED:
+        raise ValueError(
+            "methods.target_random_clustering.enabled=true requires both "
+            "methods.mixscape.enabled=true and methods.mixscale.enabled=true."
+        )
+    assignment_logic = str(CFG.get("target_random_clustering", {}).get("assignment_logic", "intersection")).strip().lower()
+    if assignment_logic not in {"intersection", "union"}:
+        raise ValueError("target_random_clustering.assignment_logic must be 'intersection' or 'union'")
+    missing_target_lists = [
+        ds for ds in DATASETS if not str(CFG["datasets"][ds].get("target_perturbation_list", "")).strip()
+    ]
+    if missing_target_lists:
+        raise ValueError(
+            "methods.target_random_clustering.enabled=true but datasets are missing "
+            f"datasets.<name>.target_perturbation_list: {missing_target_lists}"
+        )
 
 VALID_ORA_STREAMS = {"mixscape", "global_de", "ps"}
 ORA_STREAMS = []
@@ -238,6 +313,7 @@ def all_targets():
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_pseudobulk.h5ad"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_umap_leiden.tsv.gz"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_differential_genes.tsv.gz"), dataset=DATASETS))
+        outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_differential_genes_full.tsv.gz"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_long_table.tsv.gz"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_gene_long_table.tsv.gz"), dataset=DATASETS))
 
@@ -255,6 +331,9 @@ def all_targets():
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "done.txt"), dataset=DATASETS))
         outs.extend(
             expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "perturbation_differential_genes.tsv.gz"), dataset=DATASETS)
+        )
+        outs.extend(
+            expand(str(RESULTS_DIR / "{dataset}" / "global_de" / "perturbation_differential_genes_full.tsv.gz"), dataset=DATASETS)
         )
 
     if ORA_ENABLED:
@@ -276,6 +355,56 @@ def all_targets():
 
     if COMPARISON_ENABLED:
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "comparison" / "comparison_summary.tsv"), dataset=DATASETS))
+
+    if TARGET_RANDOM_CLUSTERING_ENABLED:
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "done.txt"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "perturbation_clusters.tsv"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "perturbation_clusters_expression.tsv"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "heatmap_expression.png"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "heatmap_deg_profile.png"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "volcano_plots.tsv"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "ora_terms_selected_targets.tsv.gz"),
+                dataset=DATASETS,
+            )
+        )
+        outs.extend(
+            expand(
+                str(RESULTS_DIR / "{dataset}" / "target_random_clustering" / "method_clustering_summary.tsv"),
+                dataset=DATASETS,
+            )
+        )
 
     return outs
 

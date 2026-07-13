@@ -18,6 +18,7 @@ venv/
 *.log
 *.out
 *.err
+log.md
 slurm-*.out
 slurm-*.err
 snakemake_master*.out

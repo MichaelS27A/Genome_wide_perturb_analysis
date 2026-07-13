@@ -1,14 +1,53 @@
-rule run_global_de_all_cells:
+def global_de_chunk_de_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def global_de_chunk_de_full_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes_full.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def global_de_chunk_group_count_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "group_cell_counts.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def global_de_chunk_meta_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "de_meta.json"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+rule run_chunk_global_de_all_cells:
     input:
+        manifest=lambda wc: checkpoints.build_chunk_manifests.get(dataset=wc.dataset).output.manifest,
+        chunk_cells=chunk_cells_path,
         h5ad=lambda wc: CFG["datasets"][wc.dataset]["h5ad"],
         audit_ready=maybe_audit_ready_input
     output:
-        done=str(RESULTS_DIR / "{dataset}" / "global_de" / "done.txt"),
-        de=str(RESULTS_DIR / "{dataset}" / "global_de" / "perturbation_differential_genes.tsv.gz"),
-        group_counts=str(RESULTS_DIR / "{dataset}" / "global_de" / "group_cell_counts.tsv.gz"),
-        meta=str(RESULTS_DIR / "{dataset}" / "global_de" / "de_meta.json")
+        done=str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "done.txt"),
+        de=str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes.tsv.gz"),
+        de_full=str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes_full.tsv.gz"),
+        group_counts=str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "group_cell_counts.tsv.gz"),
+        meta=str(RESULTS_DIR / "{dataset}" / "global_de" / "chunk_runs" / "chunk_{chunk}" / "de_meta.json")
     params:
-        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "global_de"),
+        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "global_de" / "chunk_runs" / f"chunk_{wc.chunk}"),
         pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         method=CFG.get("global_de", {}).get("method", "wilcoxon"),
@@ -26,6 +65,30 @@ rule run_global_de_all_cells:
         CFG["conda_env"]
     script:
         str(BASE_DIR / "scripts" / "15_run_global_de_all_cells.py")
+
+
+rule run_global_de_all_cells:
+    input:
+        de=global_de_chunk_de_inputs,
+        de_full=global_de_chunk_de_full_inputs,
+        group_counts=global_de_chunk_group_count_inputs,
+        chunk_meta=global_de_chunk_meta_inputs
+    output:
+        done=str(RESULTS_DIR / "{dataset}" / "global_de" / "done.txt"),
+        de=str(RESULTS_DIR / "{dataset}" / "global_de" / "perturbation_differential_genes.tsv.gz"),
+        de_full=str(RESULTS_DIR / "{dataset}" / "global_de" / "perturbation_differential_genes_full.tsv.gz"),
+        group_counts=str(RESULTS_DIR / "{dataset}" / "global_de" / "group_cell_counts.tsv.gz"),
+        meta=str(RESULTS_DIR / "{dataset}" / "global_de" / "de_meta.json")
+    params:
+        dataset=lambda wc: wc.dataset,
+        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "global_de"),
+    resources:
+        mem_mb=32000,
+        runtime=660
+    conda:
+        CFG["conda_env"]
+    script:
+        str(BASE_DIR / "scripts" / "19_merge_global_de_chunk_results.py")
 
 
 rule run_global_de_ora:

@@ -542,19 +542,19 @@ def parse_cli_args() -> argparse.Namespace:
     ap.add_argument(
         "--csc-max-genes",
         type=int,
-        default=1000,
+        default=0,
         help=(
             "For CSC-backed H5AD matrices, prefilter to at most this many genes before row slicing "
-            "to avoid large-memory backed slicing paths. Set 0 to disable."
+            "to avoid large-memory backed slicing paths. Set >0 to enable."
         ),
     )
     ap.add_argument(
         "--csc-max-total-nnz",
         type=int,
-        default=120000000,
+        default=0,
         help=(
             "For CSC-backed H5AD matrices, cap total nonzeros selected during gene prefiltering. "
-            "Set 0 to disable this nnz budget."
+            "Set >0 to enable this nnz budget."
         ),
     )
     ap.add_argument("--write-subset", action="store_true")
@@ -580,8 +580,8 @@ def args_from_snakemake(snk) -> argparse.Namespace:
         batch_size=int(snk.params.batch_size),
         auto_batch_max_elements=int(snk.params.auto_batch_max_elements),
         auto_batch_size=int(snk.params.auto_batch_size),
-        csc_max_genes=int(getattr(snk.params, "csc_max_genes", 1000)),
-        csc_max_total_nnz=int(getattr(snk.params, "csc_max_total_nnz", 120000000)),
+        csc_max_genes=int(getattr(snk.params, "csc_max_genes", 0)),
+        csc_max_total_nnz=int(getattr(snk.params, "csc_max_total_nnz", 0)),
         write_subset=bool(snk.params.write_subset),
         use_hvg_for_pca=bool(snk.params.use_hvg_for_pca),
         normalize_target_sum=float(snk.params.normalize_target_sum),

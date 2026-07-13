@@ -2,7 +2,7 @@
 #SBATCH --job-name=snakemake_master_slurmexec
 #SBATCH --partition=mediumq
 #SBATCH --qos=mediumq
-#SBATCH --time=11:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=8G
 #SBATCH --account=lab_gsf

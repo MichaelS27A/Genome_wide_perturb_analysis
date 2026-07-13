@@ -45,8 +45,12 @@ rule run_chunk_mixscape:
         batch_size=CFG["mixscape"].get("batch_size", 0),
         auto_batch_max_elements=CFG["mixscape"].get("auto_batch_max_elements", 800000000),
         auto_batch_size=CFG["mixscape"].get("auto_batch_size", 2000),
-        csc_max_genes=CFG["mixscape"].get("csc_max_genes", 1000),
-        csc_max_total_nnz=CFG["mixscape"].get("csc_max_total_nnz", 120000000),
+        csc_max_genes=lambda wc: CFG["datasets"][wc.dataset].get(
+            "csc_max_genes", CFG["mixscape"].get("csc_max_genes", 0)
+        ),
+        csc_max_total_nnz=lambda wc: CFG["datasets"][wc.dataset].get(
+            "csc_max_total_nnz", CFG["mixscape"].get("csc_max_total_nnz", 0)
+        ),
         normalize_target_sum=CFG["mixscape"].get("normalize_target_sum", 10000),
         logfc_threshold=CFG["mixscape"].get("logfc_threshold", 0.10),
         pval_cutoff=CFG["mixscape"].get("pval_cutoff", 0.05),
@@ -85,19 +89,85 @@ rule merge_dataset_results:
         str(BASE_DIR / "scripts" / "06_merge_mixscape_chunk_results.py")
 
 
-rule postprocess_dataset:
+def postprocess_chunk_pseudobulk_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_pseudobulk.h5ad"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def postprocess_chunk_umap_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_umap_leiden.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def postprocess_chunk_de_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def postprocess_chunk_de_full_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes_full.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def postprocess_chunk_long_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_long_table.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def postprocess_chunk_gene_long_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_gene_long_table.tsv.gz"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+def postprocess_chunk_meta_inputs(wildcards):
+    ids = get_chunk_ids(wildcards)
+    return expand(
+        str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "postprocess_meta.json"),
+        dataset=wildcards.dataset,
+        chunk=ids,
+    )
+
+
+rule run_chunk_postprocess_dataset:
     input:
-        selected_cells=lambda wc: str(RESULTS_DIR / wc.dataset / "merged" / "selected_perturbed_cells_merged.tsv.gz"),
+        manifest=lambda wc: checkpoints.build_chunk_manifests.get(dataset=wc.dataset).output.manifest,
+        chunk_cells=chunk_cells_path,
+        selected_cells=lambda wc: str(RESULTS_DIR / wc.dataset / "chunk_runs" / f"chunk_{wc.chunk}" / "selected_perturbed_cells.tsv.gz"),
         h5ad=lambda wc: CFG["datasets"][wc.dataset]["h5ad"]
     output:
-        meta=str(RESULTS_DIR / "{dataset}" / "postprocess" / "postprocess_meta.json"),
-        pseudobulk=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_pseudobulk.h5ad"),
-        umap_leiden=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_umap_leiden.tsv.gz"),
-        de=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_differential_genes.tsv.gz"),
-        long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_long_table.tsv.gz"),
-        gene_long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_gene_long_table.tsv.gz")
+        meta=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "postprocess_meta.json"),
+        pseudobulk=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_pseudobulk.h5ad"),
+        umap_leiden=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_umap_leiden.tsv.gz"),
+        de=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes.tsv.gz"),
+        de_full=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_differential_genes_full.tsv.gz"),
+        long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_long_table.tsv.gz"),
+        gene_long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "chunk_runs" / "chunk_{chunk}" / "perturbation_gene_long_table.tsv.gz")
     params:
-        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "postprocess"),
+        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "postprocess" / "chunk_runs" / f"chunk_{wc.chunk}"),
         pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         min_selected=CFG["postprocess"]["min_selected_cells"],
@@ -111,3 +181,32 @@ rule postprocess_dataset:
         CFG["postprocess_conda_env"]
     script:
         str(BASE_DIR / "scripts" / "07_perturbation_embedding_and_de.py")
+
+
+rule postprocess_dataset:
+    input:
+        pseudobulk=postprocess_chunk_pseudobulk_inputs,
+        umap_leiden=postprocess_chunk_umap_inputs,
+        de=postprocess_chunk_de_inputs,
+        de_full=postprocess_chunk_de_full_inputs,
+        long_table=postprocess_chunk_long_inputs,
+        gene_long_table=postprocess_chunk_gene_long_inputs,
+        chunk_meta=postprocess_chunk_meta_inputs
+    output:
+        meta=str(RESULTS_DIR / "{dataset}" / "postprocess" / "postprocess_meta.json"),
+        pseudobulk=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_pseudobulk.h5ad"),
+        umap_leiden=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_umap_leiden.tsv.gz"),
+        de=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_differential_genes.tsv.gz"),
+        de_full=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_differential_genes_full.tsv.gz"),
+        long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_long_table.tsv.gz"),
+        gene_long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_gene_long_table.tsv.gz")
+    params:
+        dataset=lambda wc: wc.dataset,
+        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "postprocess")
+    resources:
+        mem_mb=64000,
+        runtime=660
+    conda:
+        CFG["postprocess_conda_env"]
+    script:
+        str(BASE_DIR / "scripts" / "20_merge_postprocess_chunk_results.py")

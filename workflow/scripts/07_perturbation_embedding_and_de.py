@@ -12,6 +12,19 @@ import scanpy as sc
 from scipy import sparse
 
 
+DE_COLUMNS = [
+    "perturbation",
+    "rank",
+    "gene",
+    "score",
+    "logfoldchange",
+    "pval",
+    "pval_adj",
+    "pct_nz_group",
+    "pct_nz_reference",
+]
+
+
 def _to_dense_row(x):
     if sparse.issparse(x):
         return np.asarray(x).ravel()
@@ -57,7 +70,7 @@ def extract_rank_genes_groups(adata: sc.AnnData, groups: list[str], n_top: int) 
                 rec["pct_nz_reference"] = float(pts_rest.loc[str(gene), g])
             rows.append(rec)
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=DE_COLUMNS)
 
 
 def run_analysis(args: argparse.Namespace) -> None:
@@ -70,7 +83,63 @@ def run_analysis(args: argparse.Namespace) -> None:
 
     selected = pd.read_csv(args.selected_cells, sep="\t", compression="infer", dtype="string")
     if selected.empty:
-        raise RuntimeError("selected-cells table is empty")
+        # Some chunks may legitimately have no selected perturbations; emit empty
+        # outputs so chunk-merge can proceed without failing the whole dataset.
+        pd.DataFrame(columns=["perturbation", "n_selected_cells", "leiden", "umap_1", "umap_2"]).to_csv(
+            args.outdir / "perturbation_umap_leiden.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
+        pd.DataFrame(columns=DE_COLUMNS).to_csv(
+            args.outdir / "perturbation_differential_genes.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
+        pd.DataFrame(columns=DE_COLUMNS).to_csv(
+            args.outdir / "perturbation_differential_genes_full.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
+        pd.DataFrame(columns=["perturbation"]).to_csv(
+            args.outdir / "perturbation_long_table.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
+        pd.DataFrame(columns=["perturbation", "gene"]).to_csv(
+            args.outdir / "perturbation_gene_long_table.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
+        pd.DataFrame(columns=["chunk_id", "perturbation", "n_selected_cells"]).to_csv(
+            args.outdir / "perturbation_chunk_selection_counts.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
+        sc.AnnData(X=np.zeros((0, 0), dtype=float)).write_h5ad(
+            args.outdir / "perturbation_pseudobulk.h5ad",
+            compression="gzip",
+        )
+        meta = {
+            "h5ad": str(args.h5ad),
+            "selected_cells": str(args.selected_cells),
+            "n_selected_cells_total": 0,
+            "n_perturbations_selected": 0,
+            "n_perturbations_pseudobulk": 0,
+            "n_controls_used_for_de": 0,
+            "n_de_rows": 0,
+            "min_selected_cells": int(args.min_selected_cells),
+            "n_top_de_genes": int(args.n_top_de_genes),
+            "note": "selected-cells table was empty",
+        }
+        (args.outdir / "postprocess_meta.json").write_text(json.dumps(meta, indent=2))
+        print(f"Wrote {args.outdir / 'postprocess_meta.json'}")
+        return
 
     selected = selected.dropna(subset=["cell_barcode", "perturbation"])
     selected["cell_barcode"] = selected["cell_barcode"].astype(str)
@@ -174,29 +243,23 @@ def run_analysis(args: argparse.Namespace) -> None:
     ]
 
     if valid_groups:
+        n_full = int(adata_de.n_vars)
+        n_top = min(int(args.n_top_de_genes), n_full) if int(args.n_top_de_genes) > 0 else n_full
         sc.tl.rank_genes_groups(
             adata_de,
             groupby="de_group",
             groups=valid_groups,
             reference=args.control_label,
             method="wilcoxon",
+            n_genes=n_full,
             pts=True,
         )
-        de_df = extract_rank_genes_groups(adata_de, valid_groups, args.n_top_de_genes)
+        de_full_df = extract_rank_genes_groups(adata_de, valid_groups, n_full)
+        de_df = de_full_df[de_full_df["rank"] <= n_top].copy()
     else:
-        de_df = pd.DataFrame(
-            columns=[
-                "perturbation",
-                "rank",
-                "gene",
-                "score",
-                "logfoldchange",
-                "pval",
-                "pval_adj",
-                "pct_nz_group",
-                "pct_nz_reference",
-            ]
-        )
+        n_full = 0
+        de_df = pd.DataFrame(columns=DE_COLUMNS)
+        de_full_df = pd.DataFrame(columns=DE_COLUMNS)
 
     pert_summary = (
         selected.groupby(["chunk_id", "perturbation"], as_index=False)
@@ -226,6 +289,12 @@ def run_analysis(args: argparse.Namespace) -> None:
     pert_summary.to_csv(args.outdir / "perturbation_chunk_selection_counts.tsv.gz", sep="\t", index=False, compression="gzip")
     umap_df.to_csv(args.outdir / "perturbation_umap_leiden.tsv.gz", sep="\t", index=False, compression="gzip")
     de_df.to_csv(args.outdir / "perturbation_differential_genes.tsv.gz", sep="\t", index=False, compression="gzip")
+    de_full_df.to_csv(
+        args.outdir / "perturbation_differential_genes_full.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
     pb.write_h5ad(args.outdir / "perturbation_pseudobulk.h5ad", compression="gzip")
 
     meta = {
@@ -236,8 +305,10 @@ def run_analysis(args: argparse.Namespace) -> None:
         "n_perturbations_pseudobulk": int(pb.n_obs),
         "n_controls_used_for_de": int((adata.obs["de_group"] == args.control_label).sum()),
         "n_de_rows": int(de_df.shape[0]),
+        "n_de_full_rows": int(de_full_df.shape[0]),
         "min_selected_cells": int(args.min_selected_cells),
         "n_top_de_genes": int(args.n_top_de_genes),
+        "n_full_de_genes": int(n_full),
     }
     (args.outdir / "postprocess_meta.json").write_text(json.dumps(meta, indent=2))
 

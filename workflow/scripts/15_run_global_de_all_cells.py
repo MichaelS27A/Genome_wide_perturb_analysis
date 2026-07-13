@@ -21,6 +21,19 @@ import pandas as pd
 import scanpy as sc
 
 
+DE_COLUMNS = [
+    "perturbation",
+    "rank",
+    "gene",
+    "score",
+    "logfoldchange",
+    "pval",
+    "pval_adj",
+    "pct_nz_group",
+    "pct_nz_reference",
+]
+
+
 def extract_rank_genes_groups(adata: sc.AnnData, groups: list[str], n_top: int) -> pd.DataFrame:
     rg = adata.uns["rank_genes_groups"]
     rows = []
@@ -59,7 +72,7 @@ def extract_rank_genes_groups(adata: sc.AnnData, groups: list[str], n_top: int) 
             if pts_rest is not None and g in pts_rest.columns and str(gene) in pts_rest.index:
                 rec["pct_nz_reference"] = float(pts_rest.loc[str(gene), g])
             rows.append(rec)
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=DE_COLUMNS)
 
 
 def sample_group_barcodes(
@@ -100,12 +113,29 @@ def sample_group_barcodes(
 def run_analysis(args: argparse.Namespace) -> None:
     args.h5ad = Path(args.h5ad)
     args.outdir = Path(args.outdir)
+    args.chunk_cells = Path(args.chunk_cells) if args.chunk_cells is not None else None
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     adata_backed = sc.read_h5ad(args.h5ad, backed="r")
     obs = adata_backed.obs[[args.pert_col]].copy()
     obs.index = obs.index.astype(str)
     obs[args.pert_col] = obs[args.pert_col].astype(str)
+    n_cells_chunk_input = None
+
+    if args.chunk_cells is not None:
+        chunk_df = pd.read_csv(args.chunk_cells, sep="\t", compression="infer", dtype="string")
+        if "cell_barcode" not in chunk_df.columns:
+            adata_backed.file.close()
+            raise RuntimeError("chunk-cells file must include a 'cell_barcode' column")
+        chunk_barcodes = pd.Index(chunk_df["cell_barcode"].dropna().astype(str).unique())
+        n_cells_chunk_input = int(chunk_barcodes.shape[0])
+        if n_cells_chunk_input == 0:
+            adata_backed.file.close()
+            raise RuntimeError(f"No cell barcodes found in chunk-cells file: {args.chunk_cells}")
+        obs = obs.loc[obs.index.intersection(chunk_barcodes)].copy()
+        if obs.empty:
+            adata_backed.file.close()
+            raise RuntimeError("No overlap between chunk-cells barcodes and adata.obs_names")
 
     if args.control_label not in set(obs[args.pert_col].tolist()):
         adata_backed.file.close()
@@ -125,23 +155,19 @@ def run_analysis(args: argparse.Namespace) -> None:
     ]
     if not valid_groups:
         adata_backed.file.close()
-        empty = pd.DataFrame(
-            columns=[
-                "perturbation",
-                "rank",
-                "gene",
-                "score",
-                "logfoldchange",
-                "pval",
-                "pval_adj",
-                "pct_nz_group",
-                "pct_nz_reference",
-            ]
-        )
+        empty = pd.DataFrame(columns=DE_COLUMNS)
         empty.to_csv(args.outdir / "perturbation_differential_genes.tsv.gz", sep="\t", index=False, compression="gzip")
+        empty.to_csv(
+            args.outdir / "perturbation_differential_genes_full.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
         counts_raw.to_csv(args.outdir / "group_cell_counts.tsv.gz", sep="\t", index=False, compression="gzip")
         meta = {
             "h5ad": str(args.h5ad),
+            "chunk_cells": str(args.chunk_cells) if args.chunk_cells is not None else None,
+            "n_cells_chunk_input": n_cells_chunk_input,
             "pert_col": args.pert_col,
             "control_label": args.control_label,
             "n_cells_total": int(obs.shape[0]),
@@ -182,23 +208,19 @@ def run_analysis(args: argparse.Namespace) -> None:
         if p in counts_after.index and int(counts_after[p]) >= int(args.min_cells_per_perturbation)
     ]
     if not valid_after:
-        empty = pd.DataFrame(
-            columns=[
-                "perturbation",
-                "rank",
-                "gene",
-                "score",
-                "logfoldchange",
-                "pval",
-                "pval_adj",
-                "pct_nz_group",
-                "pct_nz_reference",
-            ]
-        )
+        empty = pd.DataFrame(columns=DE_COLUMNS)
         empty.to_csv(args.outdir / "perturbation_differential_genes.tsv.gz", sep="\t", index=False, compression="gzip")
+        empty.to_csv(
+            args.outdir / "perturbation_differential_genes_full.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
         counts_used.to_csv(args.outdir / "group_cell_counts.tsv.gz", sep="\t", index=False, compression="gzip")
         meta = {
             "h5ad": str(args.h5ad),
+            "chunk_cells": str(args.chunk_cells) if args.chunk_cells is not None else None,
+            "n_cells_chunk_input": n_cells_chunk_input,
             "pert_col": args.pert_col,
             "control_label": args.control_label,
             "n_cells_total": int(adata.n_obs),
@@ -214,10 +236,11 @@ def run_analysis(args: argparse.Namespace) -> None:
     if bool(args.log1p):
         sc.pp.log1p(adata)
 
+    n_full = int(adata.n_vars)
     n_top = int(args.n_top_de_genes)
     if n_top <= 0:
-        n_top = int(adata.n_vars)
-    n_top = min(n_top, int(adata.n_vars))
+        n_top = n_full
+    n_top = min(n_top, n_full)
 
     sc.tl.rank_genes_groups(
         adata,
@@ -225,21 +248,31 @@ def run_analysis(args: argparse.Namespace) -> None:
         groups=valid_after,
         reference=args.control_label,
         method=str(args.method),
-        n_genes=n_top,
+        n_genes=n_full,
         pts=True,
     )
-    de_df = extract_rank_genes_groups(adata, groups=valid_after, n_top=n_top)
+    de_full_df = extract_rank_genes_groups(adata, groups=valid_after, n_top=n_full)
+    de_df = de_full_df[de_full_df["rank"] <= n_top].copy()
     de_df.to_csv(args.outdir / "perturbation_differential_genes.tsv.gz", sep="\t", index=False, compression="gzip")
+    de_full_df.to_csv(
+        args.outdir / "perturbation_differential_genes_full.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
     counts_used.to_csv(args.outdir / "group_cell_counts.tsv.gz", sep="\t", index=False, compression="gzip")
 
     meta = {
         "h5ad": str(args.h5ad),
+        "chunk_cells": str(args.chunk_cells) if args.chunk_cells is not None else None,
+        "n_cells_chunk_input": n_cells_chunk_input,
         "pert_col": args.pert_col,
         "control_label": args.control_label,
         "method": args.method,
         "normalize_target_sum": float(args.normalize_target_sum),
         "log1p": bool(args.log1p),
         "n_top_de_genes": int(n_top),
+        "n_full_de_genes": int(n_full),
         "min_cells_per_perturbation": int(args.min_cells_per_perturbation),
         "max_control_cells": int(args.max_control_cells),
         "max_cells_per_perturbation": int(args.max_cells_per_perturbation),
@@ -248,6 +281,7 @@ def run_analysis(args: argparse.Namespace) -> None:
         "n_genes_used": int(adata.n_vars),
         "n_perturbations_valid": int(len(valid_after)),
         "n_de_rows": int(de_df.shape[0]),
+        "n_de_full_rows": int(de_full_df.shape[0]),
     }
     (args.outdir / "de_meta.json").write_text(json.dumps(meta, indent=2))
     (args.outdir / "done.txt").write_text("ok\n")
@@ -256,6 +290,7 @@ def run_analysis(args: argparse.Namespace) -> None:
 def parse_cli_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--h5ad", type=Path, required=True)
+    ap.add_argument("--chunk-cells", type=Path, default=None)
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--pert-col", type=str, default="gene_target")
     ap.add_argument("--control-label", type=str, default="Non-Targeting")
@@ -273,6 +308,7 @@ def parse_cli_args() -> argparse.Namespace:
 def args_from_snakemake(snk) -> argparse.Namespace:
     return argparse.Namespace(
         h5ad=Path(str(snk.input.h5ad)),
+        chunk_cells=Path(str(snk.input.chunk_cells)) if hasattr(snk.input, "chunk_cells") else None,
         outdir=Path(str(snk.params.outdir)),
         pert_col=str(snk.params.pert_col),
         control_label=str(snk.params.control),
