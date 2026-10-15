@@ -1,47 +1,57 @@
 """Shared config, defaults, and helper functions."""
 
+import json
 from pathlib import Path
 
 BASE_DIR = Path(workflow.basedir).resolve()
 ROOT_DIR = BASE_DIR.parent
 
 DEFAULT_CONFIG = {
-    "datasets": {
-        "HCT116": {
-            "enabled": True,
-            "h5ad": str(ROOT_DIR / "data" / "HCT116_filtered_dual_guide_cells.h5ad"),
-            "guide_calls_csv": str(ROOT_DIR / "data" / "HCT116_filtered_guide_calls_per_cell.csv.gz"),
-            "pert_col": "gene_target",
-            "control_label": "Non-Targeting",
-        },
-        "HEK293T": {
-            "enabled": True,
-            "h5ad": str(ROOT_DIR / "data" / "HEK293T_filtered_dual_guide_cells.h5ad"),
-            "guide_calls_csv": str(ROOT_DIR / "data" / "HEK293T_filtered_guide_calls_per_cell.csv.gz"),
-            "pert_col": "gene_target",
-            "control_label": "Non-Targeting",
-        },
-    },
+    "datasets": {},
     "chunking": {
         "perturbations_per_chunk": 128,
-        "min_cells_per_perturbation": 30,
+        "max_perturbed_cells_per_chunk": 0,
+        "min_cells_per_perturbation": 5,
         "max_controls_per_chunk": 50000,
         "csv_read_chunk_size": 300000,
     },
     "mixscape": {
         "pca_dims": 20,
+        # Keep all perturbation-signature settings explicit.  These values
+        # must be passed through to pertpy; pca_dims alone is only used by
+        # the downstream effect summary.
+        "pca_n_comps": 60,
+        "signature_n_neighbors": 30,
+        "signature_n_dims": 60,
+        "signature_ref_selection_mode": "nn",
+        "signature_split_by": "",
         "write_subset_h5ad": False,
         "use_hvg_for_pca": False,
         "normalize_target_sum": 10000,
+        "min_de_genes": 1,
         "logfc_threshold": 0.10,
         "pval_cutoff": 0.05,
+        "test_method": "wilcoxon",
+        "iter_num": 10,
+        "scale": True,
+        "split_by": "",
+        "perturbation_type": "KO",
+        "random_state": 0,
     },
     "mixscale": {
+        # Mixscale consumes the same local perturbation signature as Mixscape.
+        # Keep this contract explicit so a rerun cannot fall back to pertpy's
+        # 20-neighbour / 15-PC defaults.
+        "pca_n_comps": 60,
+        "signature_n_neighbors": 30,
+        "signature_n_dims": 60,
+        "signature_ref_selection_mode": "nn",
+        "signature_split_by": "",
         "use_hvg_for_pca": False,
         "normalize_target_sum": 10000,
         "logfc_threshold": 0.10,
         "pval_cutoff": 0.05,
-        "min_de_genes": 5,
+        "min_de_genes": 1,
         "max_de_genes": 100,
         "batch_size": 0,
     },
@@ -112,11 +122,11 @@ DEFAULT_CONFIG = {
         "require_raw_source": True,
     },
     "methods": {
-        "bootstrap_install": True,
+        "bootstrap_install": False,
         "mixscape": {"enabled": True},
         "mixscale": {
             "enabled": False,
-            "min_cells_per_perturbation": 30,
+            "min_cells_per_perturbation": 5,
             "max_perturbations": 0,
             "max_cells": 0,
             "random_seed": 0,
@@ -152,6 +162,16 @@ def deep_merge(a, b):
 
 
 CFG = deep_merge(DEFAULT_CONFIG, config)
+
+# Declare shared source files so helper and environment changes trigger reruns.
+WORKFLOW_SOURCES = sorted(str(p) for p in BASE_DIR.rglob("*") if p.is_file() and (
+    p == BASE_DIR / "Snakefile"
+    or p.parent == BASE_DIR / "rules" and p.suffix == ".smk"
+    or p.parent == BASE_DIR / "schemas" and p.suffix == ".yaml"
+    or p.parent == BASE_DIR / "envs" and p.name in {"preprocessing.yaml", "postprocess.yaml", "r_mix_methods.yaml"}
+    or p.parent == BASE_DIR / "scripts" and (p.name in {"workflow_support.py", "record_run.py"}
+        or p.name[:2].isdigit() and int(p.name[:2]) <= 20)
+))
 
 
 def resolve_from_root(pathlike):
@@ -205,7 +225,7 @@ def audit_enabled():
 
 
 def r_bootstrap_enabled():
-    return bool(CFG.get("methods", {}).get("bootstrap_install", True))
+    return bool(CFG.get("methods", {}).get("bootstrap_install", False))
 
 
 def r_bootstrap_marker():
@@ -213,6 +233,10 @@ def r_bootstrap_marker():
 
 
 MIXSCAPE_ENABLED = method_enabled("mixscape")
+# Postprocessing (pseudobulk, DE, and embeddings) is downstream of the
+# classifier and must be requested explicitly by a run configuration.
+# Preserve the historical default for configurations that do not state it.
+MIXSCAPE_POSTPROCESS_ENABLED = bool(CFG.get("postprocess", {}).get("enabled", True))
 MIXSCALE_ENABLED = method_enabled("mixscale")
 PS_ENABLED = method_enabled("ps")
 GLOBAL_DE_ENABLED = method_enabled("global_de")
@@ -293,7 +317,7 @@ if ORA_ENABLED:
 
 
 def all_targets():
-    outs = []
+    outs = [str(RESULTS_DIR / "run_provenance.json")]
 
     if audit_enabled():
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "inspection" / "ready.ok"), dataset=DATASETS))
@@ -309,6 +333,8 @@ def all_targets():
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "merged" / "perturbation_clusters.tsv"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "merged" / "selected_perturbed_cells_merged.tsv.gz"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "merged" / "mixscape_selection_summary.tsv.gz"), dataset=DATASETS))
+
+    if MIXSCAPE_ENABLED and MIXSCAPE_POSTPROCESS_ENABLED:
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "postprocess_meta.json"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_pseudobulk.h5ad"), dataset=DATASETS))
         outs.extend(expand(str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_umap_leiden.tsv.gz"), dataset=DATASETS))

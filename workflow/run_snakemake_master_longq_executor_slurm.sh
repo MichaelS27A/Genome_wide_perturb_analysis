@@ -29,8 +29,8 @@ fi
 cd "$WORKDIR"
 
 # ---- settings (aligned with interactive launcher) ----
-SNAKEFILE="workflow/Snakefile"
-CONFIGFILE="config/config.yaml"
+SNAKEFILE="${SNAKEFILE:-workflow/Snakefile}"
+CONFIGFILE="${CONFIGFILE:-config/config.yaml}"
 TARGET_RULE="${TARGET_RULE:-all}"
 
 # Keep this as the only easy override when submitting via sbatch:
@@ -47,12 +47,11 @@ DEFAULT_MEM_MB="${DEFAULT_MEM_MB:-8000}"
 DEFAULT_RUNTIME_MIN="${DEFAULT_RUNTIME_MIN:-660}"
 LATENCY_WAIT="${LATENCY_WAIT:-60}"
 BUILD_CHUNK_MANIFESTS_MEM_MB="${BUILD_CHUNK_MANIFESTS_MEM_MB:-}"
-# Default to mtime-only reruns for debug iterations; override when strict
-# provenance-based reruns are desired.
-RERUN_TRIGGERS="${RERUN_TRIGGERS:-mtime}"
+# Track parameters, code, inputs, environments and timestamps.
+RERUN_TRIGGERS="${RERUN_TRIGGERS:-mtime params input software-env code}"
 
-CONDA_BASE="/nobackup/lab_gsf/mschoeber/miniconda3"
-CONDA_ENV="snakemake"
+CONDA_BASE="${CONDA_BASE:-/nobackup/lab_gsf/mschoeber/miniconda3}"
+CONDA_ENV="${CONDA_ENV:-snakemake}"
 # ------------------------------------------------------
 
 if [[ ! -f "$SNAKEFILE" ]]; then
@@ -63,6 +62,11 @@ if [[ ! -f "$CONFIGFILE" ]]; then
   echo "ERROR: missing $CONFIGFILE" >&2
   exit 1
 fi
+
+# Keep the Snakefile's configfile directive and this launcher's explicit
+# --configfile pointed at the same file.  This prevents accidental merging with
+# the historical multi-dataset config during dedicated runs.
+export XATLAS_CONFIGFILE="$(cd "$(dirname "$CONFIGFILE")" && pwd)/$(basename "$CONFIGFILE")"
 if [[ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]]; then
   echo "ERROR: conda.sh not found at $CONDA_BASE/etc/profile.d/conda.sh" >&2
   exit 1
@@ -85,13 +89,11 @@ fi
 # workflow/runtime dependencies inside rule jobs.
 export PYTHONNOUSERSITE=1
 
-echo "[step] unlock"
-snakemake -s "$SNAKEFILE" --configfile "$CONFIGFILE" --unlock || true
 
 RERUN_TRIGGERS_NORMALIZED="${RERUN_TRIGGERS//,/ }"
 read -r -a RERUN_TRIGGER_ARGS <<< "$RERUN_TRIGGERS_NORMALIZED"
 if [[ "${#RERUN_TRIGGER_ARGS[@]}" -eq 0 ]]; then
-  RERUN_TRIGGER_ARGS=("mtime")
+  RERUN_TRIGGER_ARGS=("mtime" "params" "input" "software-env" "code")
 fi
 
 CMD=(

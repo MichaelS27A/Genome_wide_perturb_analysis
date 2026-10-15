@@ -10,6 +10,16 @@ import pandas as pd
 from scipy.stats import hypergeom
 
 
+def normalize_gene_symbol(value: object) -> str:
+    """Match genome-suffixed assay symbols to standard pathway symbols."""
+    gene = str(value).strip()
+    for suffix in ("_hg38", "_mm10", "_hg19", "_mm9"):
+        if gene.endswith(suffix):
+            gene = gene[: -len(suffix)]
+            break
+    return gene.upper()
+
+
 def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
     if pvals.size == 0:
         return pvals
@@ -38,7 +48,7 @@ def parse_gmt_files(gmt_files: list[Path]) -> dict[str, set[str]]:
                 if len(parts) < 3:
                     continue
                 term = parts[0].strip()
-                genes = {g.strip() for g in parts[2:] if g.strip()}
+                genes = {normalize_gene_symbol(g) for g in parts[2:] if g.strip()}
                 if not genes:
                     continue
                 key = f"{source}:{term}"
@@ -50,15 +60,20 @@ def parse_gmt_files(gmt_files: list[Path]) -> dict[str, set[str]]:
 
 
 def read_universe_from_h5ad(h5ad_path: Path) -> set[str]:
-    # Backed mode keeps memory usage low while reading var names.
-    import anndata as ad
+    # Read only the var index. This avoids AnnData materializing large metadata
+    # tables for multi-gigabyte expression files.
+    import h5py
 
-    adata = ad.read_h5ad(h5ad_path, backed="r")
-    try:
-        return {str(x) for x in adata.var_names.astype(str).tolist()}
-    finally:
-        if getattr(adata, "file", None) is not None:
-            adata.file.close()
+    with h5py.File(h5ad_path, "r") as handle:
+        var = handle["var"]
+        index_key = var.attrs.get("_index", "_index")
+        if isinstance(index_key, bytes):
+            index_key = index_key.decode("utf-8")
+        values = var[str(index_key)][...]
+    return {
+        normalize_gene_symbol(x.decode("utf-8") if isinstance(x, bytes) else x)
+        for x in values
+    }
 
 
 def run_ora(
@@ -158,7 +173,32 @@ def run_analysis(args: argparse.Namespace) -> None:
     if missing:
         raise RuntimeError(f"Missing GMT files: {missing}")
 
-    de = pd.read_csv(args.de, sep="\t", compression="infer")
+    header = pd.read_csv(args.de, sep="\t", compression="infer", nrows=0)
+    pcol = "pval_adj" if "pval_adj" in header.columns else ("pval" if "pval" in header.columns else None)
+    if pcol is None:
+        raise RuntimeError("DE table must include either 'pval_adj' or 'pval' for ORA filtering.")
+    required = ["perturbation", "gene", "logfoldchange", pcol]
+    missing_cols = [c for c in required if c not in header.columns]
+    if missing_cols:
+        raise RuntimeError(f"DE table missing required columns: {missing_cols}")
+
+    # Full DE tables can contain tens of millions of rows. Retain only rows
+    # that can enter an ORA query while streaming the compressed input.
+    selected_chunks = []
+    for chunk in pd.read_csv(
+        args.de, sep="\t", compression="infer", usecols=required, chunksize=500_000
+    ):
+        chunk["logfoldchange"] = pd.to_numeric(chunk["logfoldchange"], errors="coerce")
+        chunk[pcol] = pd.to_numeric(chunk[pcol], errors="coerce")
+        keep = (
+            np.isfinite(chunk["logfoldchange"])
+            & np.isfinite(chunk[pcol])
+            & (chunk["logfoldchange"].abs() >= float(args.min_abs_logfc))
+            & (chunk[pcol] <= float(args.fdr_alpha))
+        )
+        if bool(keep.any()):
+            selected_chunks.append(chunk.loc[keep].copy())
+    de = pd.concat(selected_chunks, ignore_index=True) if selected_chunks else pd.DataFrame(columns=required)
     if de.empty:
         empty = pd.DataFrame(
             columns=[
@@ -184,17 +224,9 @@ def run_analysis(args: argparse.Namespace) -> None:
         (args.outdir / "done.txt").write_text("ok\n")
         return
 
-    req = {"perturbation", "gene", "logfoldchange"}
-    missing_cols = [c for c in req if c not in de.columns]
-    if missing_cols:
-        raise RuntimeError(f"DE table missing required columns: {missing_cols}")
-
-    pcol = "pval_adj" if "pval_adj" in de.columns else ("pval" if "pval" in de.columns else None)
-    if pcol is None:
-        raise RuntimeError("DE table must include either 'pval_adj' or 'pval' for ORA filtering.")
-
     de = de.copy()
-    de["gene"] = de["gene"].astype(str)
+    de["gene_original"] = de["gene"].astype(str)
+    de["gene"] = de["gene_original"].map(normalize_gene_symbol)
     de["logfoldchange"] = pd.to_numeric(de["logfoldchange"], errors="coerce")
     de[pcol] = pd.to_numeric(de[pcol], errors="coerce")
     de = de[np.isfinite(de["logfoldchange"]) & np.isfinite(de[pcol])].copy()
@@ -322,6 +354,7 @@ def run_analysis(args: argparse.Namespace) -> None:
         "max_terms_per_direction": int(args.max_terms_per_direction),
         "n_ora_rows": int(terms_df.shape[0]),
         "n_summary_rows": int(summary_df.shape[0]),
+        "gene_symbol_normalization": "uppercase and strip _hg38/_mm10/_hg19/_mm9 suffix",
     }
     (args.outdir / "ora_meta.json").write_text(json.dumps(meta, indent=2))
     (args.outdir / "done.txt").write_text("ok\n")

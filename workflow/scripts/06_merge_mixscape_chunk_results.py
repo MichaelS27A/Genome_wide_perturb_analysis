@@ -14,7 +14,9 @@ from scipy.spatial.distance import pdist
 
 
 def load_table(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path, sep="\t")
+    frame = pd.read_csv(path, sep="\t")
+    frame["chunk_id"] = path.parent.name.removeprefix("chunk_")
+    return frame
 
 
 def run_analysis(args: argparse.Namespace) -> None:
@@ -29,8 +31,14 @@ def run_analysis(args: argparse.Namespace) -> None:
     effects_df = pd.concat([load_table(p) for p in args.chunk_effects], axis=0, ignore_index=True)
     selected_df = pd.concat([load_table(p) for p in args.chunk_selected_cells], axis=0, ignore_index=True)
 
-    stats_df = stats_df.drop_duplicates(subset=["perturbation"], keep="first").sort_values("perturbation")
-    effects_df = effects_df.drop_duplicates(subset=["perturbation"], keep="first").sort_values("perturbation")
+    for frame in (stats_df, effects_df):
+        targets = frame.loc[frame["perturbation"] != args.control_label]
+        if targets["perturbation"].duplicated().any():
+            raise ValueError("A perturbation occurs in multiple chunks")
+    if selected_df["cell_barcode"].duplicated().any():
+        raise ValueError("A selected cell occurs in multiple chunks")
+    stats_df = stats_df.sort_values(["perturbation", "chunk_id"])
+    effects_df = effects_df.sort_values(["perturbation", "chunk_id"])
 
     stats_out = args.outdir / "perturbation_stats_merged.tsv.gz"
     effects_out = args.outdir / "perturbation_effects_pca_merged.tsv.gz"
@@ -70,17 +78,19 @@ def run_analysis(args: argparse.Namespace) -> None:
     pc_cols = [c for c in effects_df.columns if c.startswith("delta_pc")]
     cluster_out = args.outdir / "perturbation_clusters.tsv"
 
-    if len(pc_cols) >= 2 and effects_df.shape[0] >= 3:
-        mat = effects_df[pc_cols].to_numpy(dtype=float)
+    cluster_effects = effects_df.loc[effects_df["perturbation"] != args.control_label]
+    # Only a single fitted PCA basis permits component-wise comparisons.
+    if len(args.chunk_effects) == 1 and len(pc_cols) >= 2 and cluster_effects.shape[0] >= 3:
+        mat = cluster_effects[pc_cols].to_numpy(dtype=float)
         d = pdist(mat, metric="euclidean")
         z = linkage(d, method="average")
-        k = min(args.n_clusters, effects_df.shape[0] - 1)
+        k = min(args.n_clusters, cluster_effects.shape[0] - 1)
         cl = fcluster(z, t=k, criterion="maxclust")
         cluster_df = pd.DataFrame(
             {
-                "perturbation": effects_df["perturbation"].values,
+                "perturbation": cluster_effects["perturbation"].values,
                 "cluster": cl,
-                "effect_l2_vs_control": effects_df["effect_l2_vs_control"].values,
+                "effect_l2_vs_control": cluster_effects["effect_l2_vs_control"].values,
             }
         ).sort_values(["cluster", "perturbation"])
         cluster_df.to_csv(cluster_out, sep="\t", index=False)
@@ -93,7 +103,9 @@ def run_analysis(args: argparse.Namespace) -> None:
         "n_chunk_stats_files": len(args.chunk_stats),
         "n_chunk_effect_files": len(args.chunk_effects),
         "n_chunk_selected_cell_files": len(args.chunk_selected_cells),
-        "n_perturbations_merged": int(effects_df.shape[0]),
+        "n_perturbations_merged": int(cluster_effects.shape[0]),
+        "pca_effects_scope": "chunk diagnostics; components are not comparable between chunks",
+        "clustering_scope": "single chunk only; use postprocess/perturbation_umap_leiden.tsv.gz for dataset clustering",
         "mean_selected_cells_per_perturbation": avg_selected_cells,
         "outputs": {
             "stats": str(stats_out),
@@ -114,6 +126,7 @@ def parse_cli_args() -> argparse.Namespace:
     ap.add_argument("--chunk-selected-cells", nargs="+", type=Path, required=True)
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--n-clusters", type=int, default=20)
+    ap.add_argument("--control-label", default="Non-Targeting")
     return ap.parse_args()
 
 
@@ -124,6 +137,7 @@ def args_from_snakemake(snk) -> argparse.Namespace:
         chunk_selected_cells=[Path(str(p)) for p in list(snk.input.selected_cells)],
         outdir=Path(str(snk.params.outdir)),
         n_clusters=int(snk.params.n_clusters),
+        control_label=str(snk.params.control),
     )
 
 

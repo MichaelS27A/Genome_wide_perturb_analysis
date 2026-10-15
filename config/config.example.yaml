@@ -1,0 +1,80 @@
+# Copy and edit this file. All input/results paths are relative to the repository root.
+# X must contain raw counts. An optional guide_calls_csv supplies cell_barcode,gene_target.
+datasets:
+  MY_SCREEN:
+    enabled: true
+    h5ad: data/my_screen.h5ad
+    pert_col: gene_target
+    control_label: Non-Targeting
+    data_id: replace-with-accession-and-version
+chunking:
+  perturbations_per_chunk: 128
+  max_perturbed_cells_per_chunk: 0
+  min_cells_per_perturbation: 5
+  max_controls_per_chunk: 50000
+  csv_read_chunk_size: 300000
+mixscape:
+  pca_dims: 20
+  pca_n_comps: 60
+  signature_n_neighbors: 30
+  signature_n_dims: 60
+  signature_ref_selection_mode: nn
+  signature_split_by: ''
+  write_subset_h5ad: false
+  use_hvg_for_pca: false
+  normalize_target_sum: 10000
+  min_de_genes: 1
+  logfc_threshold: 0.1
+  pval_cutoff: 0.05
+  test_method: wilcoxon
+  iter_num: 10
+  scale: true
+  split_by: ''
+  perturbation_type: KO
+  random_state: 0
+  batch_size: 0
+  auto_batch_max_elements: 0
+  auto_batch_size: 2000
+  csc_max_genes: 0
+  csc_max_total_nnz: 0
+  threads: 1
+  mem_mb: 16000
+postprocess:
+  min_selected_cells: 20
+  max_control_cells_for_de: 50000
+  n_top_de_genes: 200
+  random_seed: 0
+  enabled: true
+audit:
+  enabled: true
+  require_ready: true
+  require_raw_source: true
+methods:
+  bootstrap_install: false
+  mixscape:
+    enabled: true
+  mixscale:
+    enabled: false
+    min_cells_per_perturbation: 5
+    max_perturbations: 0
+    max_cells: 0
+    random_seed: 0
+  ps:
+    enabled: false
+    min_cells_per_perturbation: 30
+    max_perturbations: 0
+    max_cells: 0
+    random_seed: 0
+  global_de:
+    enabled: false
+  ora:
+    enabled: false
+  comparison:
+    enabled: false
+  target_random_clustering:
+    enabled: false
+results_dir: results/my_screen
+conda_env: envs/preprocessing.yaml
+postprocess_conda_env: envs/postprocess.yaml
+r_env: envs/r_mix_methods.yaml
+rscript_bin: Rscript

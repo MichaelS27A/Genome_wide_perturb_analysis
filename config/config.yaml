@@ -44,30 +44,48 @@ datasets:
 
 chunking:
   perturbations_per_chunk: 128
-  min_cells_per_perturbation: 30
+  max_perturbed_cells_per_chunk: 0
+  min_cells_per_perturbation: 5
   max_controls_per_chunk: 10000
   control_sample_seed: 0
   csv_read_chunk_size: 300000
 
 mixscape:
-  pca_dims: 20
+  pca_dims: 60
+  pca_n_comps: 60
+  signature_n_neighbors: 30
+  signature_n_dims: 60
+  signature_ref_selection_mode: nn
+  signature_split_by: ""
   write_subset_h5ad: false
   use_hvg_for_pca: false
   csc_max_genes: 0
   csc_max_total_nnz: 0
   batch_size: 256
   normalize_target_sum: 10000
+  min_de_genes: 1
   logfc_threshold: 0.10
   pval_cutoff: 0.05
+  test_method: wilcoxon
+  iter_num: 10
+  scale: true
+  split_by: ""
+  perturbation_type: KO
+  random_state: 0
 
 mixscale:
+  pca_n_comps: 60
+  signature_n_neighbors: 30
+  signature_n_dims: 60
+  signature_ref_selection_mode: nn
+  signature_split_by: ""
   use_hvg_for_pca: false
   csc_max_genes: 0
   csc_max_total_nnz: 0
   normalize_target_sum: 10000
   logfc_threshold: 0.10
   pval_cutoff: 0.05
-  min_de_genes: 5
+  min_de_genes: 1
   max_de_genes: 100
   batch_size: 256
 
@@ -143,7 +161,7 @@ methods:
     enabled: true
   mixscale:
     enabled: true
-    min_cells_per_perturbation: 30
+    min_cells_per_perturbation: 5
     max_perturbations: 0
     max_cells: 0
     random_seed: 0

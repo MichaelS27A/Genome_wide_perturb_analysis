@@ -5,25 +5,15 @@
 import argparse
 import json
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(snakemake.scriptdir) if "snakemake" in globals() else Path(__file__).resolve().parent))
+from workflow_support import require_unique, require_barcodes, read_tables, _open_minimal_backed_adata, _close_backing_resources
 
 import pandas as pd
 
 
 def _read_many(paths: list[Path]) -> pd.DataFrame:
-    frames = []
-    for p in paths:
-        if not p.exists():
-            continue
-        try:
-            df = pd.read_csv(p, sep="\t", compression="infer")
-        except pd.errors.EmptyDataError:
-            continue
-        if df is None or df.empty:
-            continue
-        frames.append(df)
-    if not frames:
-        return pd.DataFrame()
-    return pd.concat(frames, axis=0, ignore_index=True)
+    return pd.concat(read_tables(paths), axis=0, ignore_index=True)
 
 
 def run_analysis(args: argparse.Namespace) -> None:

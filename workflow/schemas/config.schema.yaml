@@ -1,69 +1,219 @@
-$schema: "https://json-schema.org/draft/2020-12/schema"
+$schema: https://json-schema.org/draft/2020-12/schema
 title: X_Atlas Mixscape/Mixscale/PS pipeline config
 type: object
 required:
-  - datasets
-  - results_dir
-  - conda_env
+- datasets
+- results_dir
+- conda_env
 properties:
   datasets:
     type: object
     minProperties: 1
     additionalProperties:
       type: object
-      additionalProperties: true
+      additionalProperties: false
       properties:
         enabled:
           type: boolean
         h5ad:
           type: string
+          minLength: 1
         guide_calls_csv:
           type: string
+          minLength: 1
         pert_col:
           type: string
+          minLength: 1
         control_label:
           type: string
+          minLength: 1
         target_perturbation_list:
           type: string
+          minLength: 1
+        data_id:
+          type: string
+          minLength: 1
+        h5ad_sha256:
+          type: string
+          pattern: ^[a-fA-F0-9]{64}$
+        csc_max_genes:
+          type: integer
+          minimum: 0
+        csc_max_total_nnz:
+          type: integer
+          minimum: 0
+        exclude_guides:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+      required:
+      - h5ad
+      - pert_col
+      - control_label
   chunking:
     type: object
-    additionalProperties: true
+    additionalProperties: false
+    properties:
+      perturbations_per_chunk:
+        type: integer
+        minimum: 1
+      max_perturbed_cells_per_chunk:
+        type: integer
+        minimum: 0
+      min_cells_per_perturbation:
+        type: integer
+        minimum: 1
+      max_controls_per_chunk:
+        type: integer
+        minimum: 0
+      csv_read_chunk_size:
+        type: integer
+        minimum: 1
+      control_sample_seed:
+        type: integer
+        minimum: 0
   mixscape:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
       pca_dims:
         type: integer
+        minimum: 1
+      pca_n_comps:
+        type: integer
+        minimum: 1
+      signature_n_neighbors:
+        type: integer
+        minimum: 1
+      signature_n_dims:
+        type: integer
+        minimum: 1
+      signature_ref_selection_mode:
+        type: string
+        enum:
+        - nn
+        - split_by
+      signature_split_by:
+        type: string
       write_subset_h5ad:
         type: boolean
       use_hvg_for_pca:
         type: boolean
       batch_size:
         type: integer
+        minimum: 0
       normalize_target_sum:
         type: number
+        exclusiveMinimum: 0
+      min_de_genes:
+        type: integer
+        minimum: 0
       logfc_threshold:
         type: number
       pval_cutoff:
         type: number
+        minimum: 0
+        maximum: 1
+      test_method:
+        type: string
+        enum:
+        - logreg
+        - t-test
+        - wilcoxon
+        - t-test_overestim_var
+      iter_num:
+        type: integer
+        minimum: 1
+      scale:
+        type: boolean
+      split_by:
+        type: string
+      perturbation_type:
+        type: string
+      random_state:
+        type: integer
+        minimum: 0
+      csc_max_genes:
+        type: integer
+        minimum: 0
+      csc_max_total_nnz:
+        type: integer
+        minimum: 0
+      auto_batch_max_elements:
+        type: integer
+        minimum: 0
+      threads:
+        type: integer
+        minimum: 1
+      mem_mb:
+        type: integer
+        minimum: 1
+      auto_batch_size:
+        type: integer
+        minimum: 1
   mixscale:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
+      pca_n_comps:
+        type: integer
+        minimum: 1
+      signature_n_neighbors:
+        type: integer
+        minimum: 1
+      signature_n_dims:
+        type: integer
+        minimum: 1
+      signature_ref_selection_mode:
+        type: string
+        enum:
+        - nn
+        - split_by
+      signature_split_by:
+        type: string
       use_hvg_for_pca:
         type: boolean
       normalize_target_sum:
         type: number
+        exclusiveMinimum: 0
       logfc_threshold:
         type: number
       pval_cutoff:
         type: number
+        minimum: 0
+        maximum: 1
       min_de_genes:
         type: integer
+        minimum: 0
       max_de_genes:
         type: integer
+        minimum: 0
       batch_size:
         type: integer
+        minimum: 0
+      csc_max_genes:
+        type: integer
+        minimum: 0
+      csc_max_total_nnz:
+        type: integer
+        minimum: 0
+      auto_batch_max_elements:
+        type: integer
+        minimum: 0
+      threads:
+        type: integer
+        minimum: 1
+      mem_mb:
+        type: integer
+        minimum: 1
+      auto_batch_size:
+        type: integer
+        minimum: 1
+  lda:
+    type: object
+    additionalProperties: true
   global_de:
     type: object
     additionalProperties: true
@@ -72,18 +222,24 @@ properties:
         type: string
       normalize_target_sum:
         type: number
+        exclusiveMinimum: 0
       log1p:
         type: boolean
       n_top_de_genes:
         type: integer
+        minimum: 1
       min_cells_per_perturbation:
         type: integer
+        minimum: 1
       max_control_cells:
         type: integer
+        minimum: 0
       max_cells_per_perturbation:
         type: integer
+        minimum: 0
       random_seed:
         type: integer
+        minimum: 0
   ora:
     type: object
     additionalProperties: true
@@ -96,19 +252,28 @@ properties:
         type: array
         items:
           type: string
-          enum: [mixscape, global_de, ps]
+          enum:
+          - mixscape
+          - global_de
+          - ps
       fdr_alpha:
         type: number
+        minimum: 0
+        maximum: 1
       min_abs_logfc:
         type: number
       min_deg_genes:
         type: integer
+        minimum: 0
       max_terms_per_direction:
         type: integer
+        minimum: 0
       min_term_size:
         type: integer
+        minimum: 0
       max_term_size:
         type: integer
+        minimum: 0
   ps_de:
     type: object
     additionalProperties: true
@@ -117,20 +282,33 @@ properties:
         type: string
       score_mode:
         type: string
-        enum: [top_positive, top_negative, top_absolute]
+        enum:
+        - top_positive
+        - top_negative
+        - top_absolute
       score_quantile:
         type: number
+        minimum: 0
+        maximum: 1
       min_selected_cells:
         type: integer
+        minimum: 1
       max_control_cells:
         type: integer
+        minimum: 0
       n_top_de_genes:
         type: integer
+        minimum: 1
       random_seed:
         type: integer
+        minimum: 0
   clustering:
     type: object
-    additionalProperties: true
+    additionalProperties: false
+    properties:
+      n_clusters:
+        type: integer
+        minimum: 1
   target_random_clustering:
     type: object
     additionalProperties: true
@@ -139,58 +317,98 @@ properties:
         type: array
         items:
           type: string
-          enum: [global_de, mixscape, mixscale, ps]
+          enum:
+          - global_de
+          - mixscape
+          - mixscale
+          - ps
       random_controls_match_target_count:
         type: boolean
       n_random_controls:
         type: integer
+        minimum: 0
       min_abs_effect:
         type: number
       max_pval_adj:
         type: number
+        minimum: 0
+        maximum: 1
       rank_significant_max:
         type: integer
+        minimum: 0
       top_genes_per_perturbation:
         type: integer
+        minimum: 0
       min_feature_genes:
         type: integer
+        minimum: 0
       assignment_logic:
         type: string
-        enum: [intersection, union]
+        enum:
+        - intersection
+        - union
       mixscale_score_threshold:
         type: number
       max_control_cells:
         type: integer
+        minimum: 0
       expression_normalize_target_sum:
         type: number
+        exclusiveMinimum: 0
       expression_log1p:
         type: boolean
       heatmap_max_genes:
         type: integer
+        minimum: 0
       heatmap_gene_order:
         type: string
-        enum: [variance, absolute_mean]
+        enum:
+        - variance
+        - absolute_mean
       volcano_max_targets:
         type: integer
+        minimum: 0
       recurrent_gene_fraction:
         type: number
+        minimum: 0
+        maximum: 1
       volcano_stream_priority:
         type: array
         items:
           type: string
-          enum: [global_de, mixscape, mixscale, ps]
+          enum:
+          - global_de
+          - mixscape
+          - mixscale
+          - ps
       linkage:
         type: string
       distance:
         type: string
       random_seed:
         type: integer
+        minimum: 0
   postprocess:
     type: object
-    additionalProperties: true
+    additionalProperties: false
+    properties:
+      min_selected_cells:
+        type: integer
+        minimum: 1
+      max_control_cells_for_de:
+        type: integer
+        minimum: 0
+      n_top_de_genes:
+        type: integer
+        minimum: 1
+      random_seed:
+        type: integer
+        minimum: 0
+      enabled:
+        type: boolean
   audit:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
       enabled:
         type: boolean
@@ -200,31 +418,52 @@ properties:
         type: boolean
   methods:
     type: object
-    additionalProperties: true
+    additionalProperties: false
     properties:
       bootstrap_install:
         type: boolean
       mixscape:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
       mixscale:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
       ps:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
       global_de:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
       ora:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
       comparison:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
       target_random_clustering:
         type: object
         additionalProperties: true
+        properties:
+          enabled:
+            type: boolean
   results_dir:
     type: string
   conda_env:
@@ -235,4 +474,4 @@ properties:
     type: string
   rscript_bin:
     type: string
-additionalProperties: true
+additionalProperties: false

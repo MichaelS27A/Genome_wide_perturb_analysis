@@ -5,6 +5,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(snakemake.scriptdir) if "snakemake" in globals() else Path(__file__).resolve().parent))
+from workflow_support import require_unique, require_barcodes, require_raw_counts, _open_minimal_backed_adata, _close_backing_resources
 
 # Apply conservative defaults before importing numerical libraries.
 for _env in (
@@ -116,29 +119,31 @@ def run_analysis(args: argparse.Namespace) -> None:
     args.chunk_cells = Path(args.chunk_cells) if args.chunk_cells is not None else None
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    adata_backed = sc.read_h5ad(args.h5ad, backed="r")
-    obs = adata_backed.obs[[args.pert_col]].copy()
+    adata_backed, h5_handle = _open_minimal_backed_adata(args.h5ad)
+    obs = adata_backed.obs.copy()
     obs.index = obs.index.astype(str)
-    obs[args.pert_col] = obs[args.pert_col].astype(str)
     n_cells_chunk_input = None
 
     if args.chunk_cells is not None:
         chunk_df = pd.read_csv(args.chunk_cells, sep="\t", compression="infer", dtype="string")
         if "cell_barcode" not in chunk_df.columns:
-            adata_backed.file.close()
+            _close_backing_resources(adata_backed, h5_handle)
             raise RuntimeError("chunk-cells file must include a 'cell_barcode' column")
-        chunk_barcodes = pd.Index(chunk_df["cell_barcode"].dropna().astype(str).unique())
+        require_unique(chunk_df, ["cell_barcode"], "chunk cells")
+        chunk_barcodes = pd.Index(chunk_df["cell_barcode"].astype(str))
+        require_barcodes(obs.index, chunk_barcodes.tolist())
+        obs[args.pert_col] = chunk_df.set_index("cell_barcode")["gene_target"].reindex(obs.index)
         n_cells_chunk_input = int(chunk_barcodes.shape[0])
         if n_cells_chunk_input == 0:
-            adata_backed.file.close()
+            _close_backing_resources(adata_backed, h5_handle)
             raise RuntimeError(f"No cell barcodes found in chunk-cells file: {args.chunk_cells}")
         obs = obs.loc[obs.index.intersection(chunk_barcodes)].copy()
         if obs.empty:
-            adata_backed.file.close()
+            _close_backing_resources(adata_backed, h5_handle)
             raise RuntimeError("No overlap between chunk-cells barcodes and adata.obs_names")
 
     if args.control_label not in set(obs[args.pert_col].tolist()):
-        adata_backed.file.close()
+        _close_backing_resources(adata_backed, h5_handle)
         raise RuntimeError(f"control label '{args.control_label}' not found in '{args.pert_col}'")
 
     counts_raw = (
@@ -154,7 +159,7 @@ def run_analysis(args: argparse.Namespace) -> None:
         if p != args.control_label and int(n) >= int(args.min_cells_per_perturbation)
     ]
     if not valid_groups:
-        adata_backed.file.close()
+        _close_backing_resources(adata_backed, h5_handle)
         empty = pd.DataFrame(columns=DE_COLUMNS)
         empty.to_csv(args.outdir / "perturbation_differential_genes.tsv.gz", sep="\t", index=False, compression="gzip")
         empty.to_csv(
@@ -191,14 +196,15 @@ def run_analysis(args: argparse.Namespace) -> None:
     obs_names = pd.Index(adata_backed.obs_names.astype(str))
     keep_mask = obs_names.isin(keep_barcodes)
     if int(keep_mask.sum()) == 0:
-        adata_backed.file.close()
+        _close_backing_resources(adata_backed, h5_handle)
         raise RuntimeError("No overlap between selected barcodes and adata.obs_names")
 
     adata = adata_backed[keep_mask].to_memory()
-    adata_backed.file.close()
+    _close_backing_resources(adata_backed, h5_handle)
     adata.obs_names = adata.obs_names.astype(str)
     adata.obs = adata.obs.copy()
-    adata.obs[args.pert_col] = adata.obs[args.pert_col].astype(str)
+    adata.obs[args.pert_col] = obs[args.pert_col].reindex(adata.obs_names).astype(str).to_numpy()
+    require_raw_counts(adata.X)
 
     # Keep only groups present after optional capping/subsampling.
     counts_after = adata.obs[args.pert_col].value_counts()

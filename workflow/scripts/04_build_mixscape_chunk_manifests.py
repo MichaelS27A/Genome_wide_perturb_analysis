@@ -17,6 +17,9 @@ import json
 import random
 from collections import Counter, defaultdict
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(snakemake.scriptdir) if "snakemake" in globals() else Path(__file__).resolve().parent))
+from workflow_support import require_unique, require_barcodes, read_tables, _open_minimal_backed_adata, _close_backing_resources
 from typing import Dict, Iterable, List
 
 import pandas as pd
@@ -26,19 +29,65 @@ def split_chunks(items: List[str], size: int) -> List[List[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
-def iter_csv_chunks(csv_path: Path, chunk_size: int) -> Iterable[pd.DataFrame]:
-    for ch in pd.read_csv(
+def split_weighted_chunks(
+    items: List[str], counts: Counter, max_items: int, max_cells: int
+) -> List[List[str]]:
+    """Balance target abundance while respecting target and cell caps."""
+    if max_cells <= 0:
+        return split_chunks(items, max_items)
+    groups: List[List[str]] = []
+    loads: List[int] = []
+    for item in sorted(items, key=lambda value: (-int(counts[value]), value)):
+        weight = int(counts[item])
+        candidates = [
+            idx for idx, group in enumerate(groups)
+            if len(group) < max_items and loads[idx] + weight <= max_cells
+        ]
+        if candidates:
+            idx = min(candidates, key=lambda value: (loads[value], len(groups[value]), value))
+            groups[idx].append(item)
+            loads[idx] += weight
+        else:
+            groups.append([item])
+            loads.append(weight)
+    for group in groups:
+        group.sort()
+    return groups
+
+
+def iter_csv_chunks(
+    csv_path: Path, chunk_size: int, exclude_guides: set[str] | None = None
+) -> Iterable[pd.DataFrame]:
+    """Yield guide calls after applying configured guide-level exclusions.
+
+    Exclusions are applied before counting controls or assigning chunks, so an
+    excluded control cannot enter a reference set by accident.
+    """
+    exclude_guides = exclude_guides or set()
+    columns = pd.read_csv(csv_path, nrows=0, compression="infer").columns.tolist()
+    guide_col = next((name for name in ("guide", "guide_name") if name in columns), None)
+    if exclude_guides and guide_col is None:
+        raise RuntimeError(
+            f"guide exclusions were configured but {csv_path} has neither 'guide' nor 'guide_name'"
+        )
+    usecols = ["cell_barcode", "gene_target"] + ([guide_col] if guide_col else [])
+    with pd.read_csv(
         csv_path,
-        usecols=["cell_barcode", "gene_target"],
+        usecols=usecols,
         dtype={"cell_barcode": "string", "gene_target": "string"},
         chunksize=chunk_size,
         compression="infer",
         low_memory=True,
-    ):
-        yield ch
+    ) as reader:
+        for ch in reader:
+            if guide_col:
+                ch[guide_col] = ch[guide_col].astype("string")
+                ch = ch.loc[~ch[guide_col].isin(exclude_guides)].copy()
+            yield ch[["cell_barcode", "gene_target"]]
 
 
 def choose_control_subset(control_barcodes: List[str], max_controls_per_chunk: int, seed: int) -> List[str]:
+    control_barcodes = sorted(control_barcodes)
     if max_controls_per_chunk <= 0 or len(control_barcodes) <= max_controls_per_chunk:
         return control_barcodes
     rng = random.Random(seed)
@@ -46,20 +95,15 @@ def choose_control_subset(control_barcodes: List[str], max_controls_per_chunk: i
 
 
 def load_obs_from_h5ad(h5ad_path: Path, pert_col: str) -> pd.DataFrame:
-    import scanpy as sc
+    import h5py
+    from anndata.io import read_elem
 
-    adata = sc.read_h5ad(h5ad_path, backed="r")
-    try:
-        if pert_col not in adata.obs.columns:
-            raise RuntimeError(f"Column '{pert_col}' not found in {h5ad_path}.obs")
-
-        obs = adata.obs[[pert_col]].copy()
-        obs = obs.reset_index().rename(columns={"index": "cell_barcode", pert_col: "gene_target"})
-        obs["cell_barcode"] = obs["cell_barcode"].astype("string")
-        obs["gene_target"] = obs["gene_target"].astype("string")
-        return obs
-    finally:
-        adata.file.close()
+    with h5py.File(h5ad_path, "r") as handle:
+        obs = read_elem(handle["obs"])
+    if pert_col not in obs:
+        raise ValueError(f"Column {pert_col!r} not found in H5AD obs")
+    return pd.DataFrame({"cell_barcode": obs.index.astype(str),
+                         "gene_target": obs[pert_col].astype("string").to_numpy()})
 
 
 def build_from_dataframe(
@@ -67,10 +111,14 @@ def build_from_dataframe(
     outdir: Path,
     control_label: str,
     perturbations_per_chunk: int,
+    max_perturbed_cells_per_chunk: int,
     min_cells_per_perturbation: int,
     max_controls_per_chunk: int,
     control_sample_seed: int,
 ) -> dict:
+    require_unique(df, ["cell_barcode"], "guide calls")
+    if df["gene_target"].isna().any() or df["gene_target"].astype(str).str.strip().eq("").any():
+        raise ValueError("Guide calls contain missing perturbation labels")
     chunks_dir = outdir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
 
@@ -89,7 +137,13 @@ def build_from_dataframe(
     ]
     perturbations.sort()
 
-    groups = split_chunks(perturbations, perturbations_per_chunk)
+    if not control_barcodes:
+        raise ValueError(f"No controls found for label {control_label!r}")
+    if not perturbations:
+        raise ValueError("No perturbations meet min_cells_per_perturbation")
+    groups = split_weighted_chunks(
+        perturbations, gene_counts, perturbations_per_chunk, max_perturbed_cells_per_chunk
+    )
     pert_to_chunk: Dict[str, int] = {}
     for cid, group in enumerate(groups):
         for p in group:
@@ -156,17 +210,27 @@ def build_from_csv(
     outdir: Path,
     control_label: str,
     perturbations_per_chunk: int,
+    max_perturbed_cells_per_chunk: int,
     min_cells_per_perturbation: int,
     max_controls_per_chunk: int,
     chunk_size: int,
     control_sample_seed: int,
+    exclude_guides: set[str] | None = None,
 ) -> dict:
     # Keep CSV mode streaming, because this can be very large.
     total_rows = 0
     gene_counts: Counter = Counter()
     control_barcodes: List[str] = []
 
-    for ch in iter_csv_chunks(csv_path, chunk_size):
+    seen = set()
+    for ch in iter_csv_chunks(csv_path, chunk_size, exclude_guides):
+        require_unique(ch, ["cell_barcode"], "guide calls")
+        if ch["gene_target"].isna().any() or ch["gene_target"].str.strip().eq("").any():
+            raise ValueError("Guide calls contain missing perturbation labels")
+        barcodes = set(ch["cell_barcode"].astype(str))
+        if seen.intersection(barcodes):
+            raise ValueError("Guide calls contain duplicate cell barcodes across CSV blocks")
+        seen.update(barcodes)
         total_rows += len(ch)
         gt = ch["gene_target"].fillna("<NA>")
         vc = gt.value_counts(dropna=False)
@@ -182,7 +246,13 @@ def build_from_csv(
         if p not in {control_label, "<NA>"} and c >= min_cells_per_perturbation
     ]
     perturbations.sort()
-    groups = split_chunks(perturbations, perturbations_per_chunk)
+    if not control_barcodes:
+        raise ValueError(f"No controls found for label {control_label!r}")
+    if not perturbations:
+        raise ValueError("No perturbations meet min_cells_per_perturbation")
+    groups = split_weighted_chunks(
+        perturbations, gene_counts, perturbations_per_chunk, max_perturbed_cells_per_chunk
+    )
 
     pert_to_chunk: Dict[str, int] = {}
     for cid, group in enumerate(groups):
@@ -215,7 +285,7 @@ def build_from_csv(
             pert_path.write_text("\n".join(group) + "\n")
             writers[cid] = w
 
-        for ch in iter_csv_chunks(csv_path, chunk_size):
+        for ch in iter_csv_chunks(csv_path, chunk_size, exclude_guides):
             ch = ch.dropna(subset=["cell_barcode", "gene_target"])
             ch["gene_target"] = ch["gene_target"].astype(str)
             ch = ch[ch["gene_target"].isin(pert_to_chunk)]
@@ -253,6 +323,7 @@ def run_analysis(args: argparse.Namespace) -> None:
     args.csv = Path(args.csv) if args.csv is not None else None
     args.h5ad = Path(args.h5ad) if args.h5ad is not None else None
     args.outdir = Path(args.outdir)
+    args.exclude_guides = {str(x) for x in args.exclude_guides if str(x)}
 
     if bool(args.csv) == bool(args.h5ad):
         raise RuntimeError("Provide exactly one source: either --csv or --h5ad")
@@ -260,18 +331,27 @@ def run_analysis(args: argparse.Namespace) -> None:
     outdir = args.outdir
     outdir.mkdir(parents=True, exist_ok=True)
 
+    if args.exclude_guides and not args.csv:
+        raise ValueError("Guide exclusions require guide_calls_csv with guide identifiers")
+
     if args.csv:
         result = build_from_csv(
             csv_path=args.csv,
             outdir=outdir,
             control_label=args.control_label,
             perturbations_per_chunk=args.perturbations_per_chunk,
+            max_perturbed_cells_per_chunk=args.max_perturbed_cells_per_chunk,
             min_cells_per_perturbation=args.min_cells_per_perturbation,
             max_controls_per_chunk=args.max_controls_per_chunk,
             chunk_size=args.chunk_size,
             control_sample_seed=args.control_sample_seed,
+            exclude_guides=args.exclude_guides,
         )
-        source_meta = {"source_type": "csv", "csv": str(args.csv)}
+        source_meta = {
+            "source_type": "csv",
+            "csv": str(args.csv),
+            "excluded_guides": sorted(args.exclude_guides),
+        }
     else:
         obs_df = load_obs_from_h5ad(args.h5ad, args.pert_col)
         result = build_from_dataframe(
@@ -279,6 +359,7 @@ def run_analysis(args: argparse.Namespace) -> None:
             outdir=outdir,
             control_label=args.control_label,
             perturbations_per_chunk=args.perturbations_per_chunk,
+            max_perturbed_cells_per_chunk=args.max_perturbed_cells_per_chunk,
             min_cells_per_perturbation=args.min_cells_per_perturbation,
             max_controls_per_chunk=args.max_controls_per_chunk,
             control_sample_seed=args.control_sample_seed,
@@ -293,6 +374,7 @@ def run_analysis(args: argparse.Namespace) -> None:
         **source_meta,
         "controls_label": args.control_label,
         "perturbations_per_chunk": args.perturbations_per_chunk,
+        "max_perturbed_cells_per_chunk": args.max_perturbed_cells_per_chunk,
         "min_cells_per_perturbation": args.min_cells_per_perturbation,
         "max_controls_per_chunk": args.max_controls_per_chunk,
         "control_sample_seed": args.control_sample_seed,
@@ -313,10 +395,12 @@ def parse_cli_args() -> argparse.Namespace:
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--control-label", type=str, default="Non-Targeting")
     ap.add_argument("--perturbations-per-chunk", type=int, default=128)
+    ap.add_argument("--max-perturbed-cells-per-chunk", type=int, default=0)
     ap.add_argument("--min-cells-per-perturbation", type=int, default=30)
     ap.add_argument("--max-controls-per-chunk", type=int, default=50000)
     ap.add_argument("--control-sample-seed", type=int, default=0)
     ap.add_argument("--chunk-size", type=int, default=300_000)
+    ap.add_argument("--exclude-guides", nargs="*", default=[])
     return ap.parse_args()
 
 
@@ -332,10 +416,12 @@ def args_from_snakemake(snk) -> argparse.Namespace:
         outdir=Path(str(Path(str(snk.output.manifest)).parent)),
         control_label=str(snk.params.control),
         perturbations_per_chunk=int(snk.params.ppc),
+        max_perturbed_cells_per_chunk=int(snk.params.max_perturbed_cells),
         min_cells_per_perturbation=int(snk.params.min_cells),
         max_controls_per_chunk=int(snk.params.max_controls),
         control_sample_seed=int(snk.params.control_seed),
         chunk_size=int(snk.params.read_chunk),
+        exclude_guides=list(snk.params.exclude_guides),
     )
 
 

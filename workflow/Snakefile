@@ -5,10 +5,17 @@ from snakemake.utils import min_version, validate
 min_version("8.20.1")
 
 WORKFLOW_DIR = Path(workflow.basedir).resolve()
-configfile: str((WORKFLOW_DIR.parent / "config" / "config.yaml").resolve())
+XATLAS_CONFIGFILE = os.environ.get(
+    "XATLAS_CONFIGFILE",
+    str((WORKFLOW_DIR.parent / "config" / "config.yaml").resolve()),
+)
+# An explicit CLI config is authoritative; do not merge in the local atlases.
+if not config:
+    configfile: XATLAS_CONFIGFILE
 validate(config, str(WORKFLOW_DIR / "schemas" / "config.schema.yaml"))
 
 include: os.path.join("rules", "common.smk")
+include: os.path.join("rules", "provenance.smk")
 
 include: os.path.join("rules", "audit.smk")
 include: os.path.join("rules", "mixscape.smk")
@@ -18,8 +25,9 @@ include: os.path.join("rules", "global_de_ora.smk")
 include: os.path.join("rules", "comparison.smk")
 include: os.path.join("rules", "target_random_clustering.smk")
 
-localrules: all
+localrules: all, record_run
 
 rule all:
+    default_target: True
     input:
         all_targets()

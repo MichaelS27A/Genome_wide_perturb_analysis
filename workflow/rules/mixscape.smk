@@ -3,7 +3,8 @@ checkpoint build_chunk_manifests:
         source=lambda wc: CFG["datasets"][wc.dataset].get(
             "guide_calls_csv", CFG["datasets"][wc.dataset]["h5ad"]
         ),
-        audit_ready=maybe_audit_ready_input
+        audit_ready=maybe_audit_ready_input,
+        provenance=str(RESULTS_DIR / "run_provenance.json")
     output:
         manifest=str(RESULTS_DIR / "{dataset}" / "manifest.json"),
         summary=str(RESULTS_DIR / "{dataset}" / "chunk_summary.tsv"),
@@ -13,10 +14,12 @@ checkpoint build_chunk_manifests:
         pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         ppc=CFG["chunking"]["perturbations_per_chunk"],
+        max_perturbed_cells=CFG["chunking"].get("max_perturbed_cells_per_chunk", 0),
         min_cells=CFG["chunking"]["min_cells_per_perturbation"],
         max_controls=CFG["chunking"]["max_controls_per_chunk"],
         control_seed=CFG["chunking"].get("control_sample_seed", 0),
-        read_chunk=CFG["chunking"]["csv_read_chunk_size"]
+        read_chunk=CFG["chunking"]["csv_read_chunk_size"],
+        exclude_guides=lambda wc: CFG["datasets"][wc.dataset].get("exclude_guides", [])
     resources:
         mem_mb=350000,
         runtime=660
@@ -36,12 +39,18 @@ rule run_chunk_mixscape:
         stats=str(RESULTS_DIR / "{dataset}" / "chunk_runs" / "chunk_{chunk}" / "perturbation_stats.tsv"),
         effects=str(RESULTS_DIR / "{dataset}" / "chunk_runs" / "chunk_{chunk}" / "perturbation_effects_pca.tsv"),
         labels=str(RESULTS_DIR / "{dataset}" / "chunk_runs" / "chunk_{chunk}" / "cell_mixscape_labels.tsv.gz"),
-        selected_cells=str(RESULTS_DIR / "{dataset}" / "chunk_runs" / "chunk_{chunk}" / "selected_perturbed_cells.tsv.gz")
+        selected_cells=str(RESULTS_DIR / "{dataset}" / "chunk_runs" / "chunk_{chunk}" / "selected_perturbed_cells.tsv.gz"),
+        run_meta=str(RESULTS_DIR / "{dataset}" / "chunk_runs" / "chunk_{chunk}" / "run_meta.json")
     params:
         outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "chunk_runs" / f"chunk_{wc.chunk}"),
         pert_col=lambda wc: CFG["datasets"][wc.dataset].get("pert_col", "gene_target"),
         control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting"),
         pca_dims=CFG["mixscape"]["pca_dims"],
+        pca_n_comps=CFG["mixscape"].get("pca_n_comps", 60),
+        signature_n_neighbors=CFG["mixscape"].get("signature_n_neighbors", 30),
+        signature_n_dims=CFG["mixscape"].get("signature_n_dims", 60),
+        signature_ref_selection_mode=CFG["mixscape"].get("signature_ref_selection_mode", "nn"),
+        signature_split_by=CFG["mixscape"].get("signature_split_by", ""),
         batch_size=CFG["mixscape"].get("batch_size", 0),
         auto_batch_max_elements=CFG["mixscape"].get("auto_batch_max_elements", 800000000),
         auto_batch_size=CFG["mixscape"].get("auto_batch_size", 2000),
@@ -54,10 +63,19 @@ rule run_chunk_mixscape:
         normalize_target_sum=CFG["mixscape"].get("normalize_target_sum", 10000),
         logfc_threshold=CFG["mixscape"].get("logfc_threshold", 0.10),
         pval_cutoff=CFG["mixscape"].get("pval_cutoff", 0.05),
+        min_de_genes=CFG["mixscape"].get("min_de_genes", 1),
+        test_method=CFG["mixscape"].get("test_method", "wilcoxon"),
+        iter_num=CFG["mixscape"].get("iter_num", 10),
+        scale=CFG["mixscape"].get("scale", True),
+        split_by=CFG["mixscape"].get("split_by", ""),
+        perturbation_type=CFG["mixscape"].get("perturbation_type", "KO"),
+        random_state=CFG["mixscape"].get("random_state", 0),
         write_subset=CFG["mixscape"]["write_subset_h5ad"],
         use_hvg_for_pca=CFG["mixscape"].get("use_hvg_for_pca", False)
+    threads:
+        int(CFG["mixscape"].get("threads", 1))
     resources:
-        mem_mb=200000,
+        mem_mb=int(CFG["mixscape"].get("mem_mb", 200000)),
         runtime=660
     conda:
         CFG["conda_env"]
@@ -79,7 +97,8 @@ rule merge_dataset_results:
         meta=str(RESULTS_DIR / "{dataset}" / "merged" / "merge_meta.json")
     params:
         outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "merged"),
-        n_clusters=CFG["clustering"]["n_clusters"]
+        n_clusters=CFG["clustering"]["n_clusters"],
+        control=lambda wc: CFG["datasets"][wc.dataset].get("control_label", "Non-Targeting")
     resources:
         mem_mb=32000,
         runtime=660
@@ -202,7 +221,8 @@ rule postprocess_dataset:
         gene_long_table=str(RESULTS_DIR / "{dataset}" / "postprocess" / "perturbation_gene_long_table.tsv.gz")
     params:
         dataset=lambda wc: wc.dataset,
-        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "postprocess")
+        outdir=lambda wc: str(RESULTS_DIR / wc.dataset / "postprocess"),
+        seed=CFG["postprocess"]["random_seed"]
     resources:
         mem_mb=64000,
         runtime=660

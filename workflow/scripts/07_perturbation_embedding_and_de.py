@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""Post-Mixscape perturbation analysis: pseudobulk, UMAP/Leiden, and DE."""
+"""Post-Mixscape chunk analysis: pseudobulk and DE.
+
+Chunks are a compute partition, not independent biological datasets.  Their
+pseudobulks are embedded only after merging by ``20_merge_postprocess_chunk_results.py``.
+"""
 
 
 import argparse
 import json
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(snakemake.scriptdir) if "snakemake" in globals() else Path(__file__).resolve().parent))
+from workflow_support import require_unique, require_barcodes, read_tables, require_raw_counts, _open_minimal_backed_adata, _close_backing_resources
 
 import numpy as np
 import pandas as pd
@@ -73,6 +80,68 @@ def extract_rank_genes_groups(adata: sc.AnnData, groups: list[str], n_top: int) 
     return pd.DataFrame(rows, columns=DE_COLUMNS)
 
 
+def write_empty_outputs(
+    args: argparse.Namespace,
+    note: str,
+    n_selected_cells_total: int = 0,
+) -> None:
+    """Emit merge-compatible outputs when no perturbation passes selection."""
+    pd.DataFrame(columns=["perturbation", "n_selected_cells", "leiden", "umap_1", "umap_2"]).to_csv(
+        args.outdir / "perturbation_umap_leiden.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+    pd.DataFrame(columns=DE_COLUMNS).to_csv(
+        args.outdir / "perturbation_differential_genes.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+    pd.DataFrame(columns=DE_COLUMNS).to_csv(
+        args.outdir / "perturbation_differential_genes_full.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+    pd.DataFrame(columns=["perturbation"]).to_csv(
+        args.outdir / "perturbation_long_table.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+    pd.DataFrame(columns=["perturbation", "gene"]).to_csv(
+        args.outdir / "perturbation_gene_long_table.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+    pd.DataFrame(columns=["chunk_id", "perturbation", "n_selected_cells"]).to_csv(
+        args.outdir / "perturbation_chunk_selection_counts.tsv.gz",
+        sep="\t",
+        index=False,
+        compression="gzip",
+    )
+    sc.AnnData(X=np.zeros((0, 0), dtype=float)).write_h5ad(
+        args.outdir / "perturbation_pseudobulk.h5ad",
+        compression="gzip",
+    )
+    meta = {
+        "h5ad": str(args.h5ad),
+        "selected_cells": str(args.selected_cells),
+        "n_selected_cells_total": int(n_selected_cells_total),
+        "n_perturbations_selected": 0,
+        "n_perturbations_pseudobulk": 0,
+        "n_controls_used_for_de": 0,
+        "n_de_rows": 0,
+        "min_selected_cells": int(args.min_selected_cells),
+        "n_top_de_genes": int(args.n_top_de_genes),
+        "note": note,
+    }
+    (args.outdir / "postprocess_meta.json").write_text(json.dumps(meta, indent=2))
+    print(f"Wrote {args.outdir / 'postprocess_meta.json'}")
+
+
 def run_analysis(args: argparse.Namespace) -> None:
     args.h5ad = Path(args.h5ad)
     args.selected_cells = Path(args.selected_cells)
@@ -85,63 +154,12 @@ def run_analysis(args: argparse.Namespace) -> None:
     if selected.empty:
         # Some chunks may legitimately have no selected perturbations; emit empty
         # outputs so chunk-merge can proceed without failing the whole dataset.
-        pd.DataFrame(columns=["perturbation", "n_selected_cells", "leiden", "umap_1", "umap_2"]).to_csv(
-            args.outdir / "perturbation_umap_leiden.tsv.gz",
-            sep="\t",
-            index=False,
-            compression="gzip",
-        )
-        pd.DataFrame(columns=DE_COLUMNS).to_csv(
-            args.outdir / "perturbation_differential_genes.tsv.gz",
-            sep="\t",
-            index=False,
-            compression="gzip",
-        )
-        pd.DataFrame(columns=DE_COLUMNS).to_csv(
-            args.outdir / "perturbation_differential_genes_full.tsv.gz",
-            sep="\t",
-            index=False,
-            compression="gzip",
-        )
-        pd.DataFrame(columns=["perturbation"]).to_csv(
-            args.outdir / "perturbation_long_table.tsv.gz",
-            sep="\t",
-            index=False,
-            compression="gzip",
-        )
-        pd.DataFrame(columns=["perturbation", "gene"]).to_csv(
-            args.outdir / "perturbation_gene_long_table.tsv.gz",
-            sep="\t",
-            index=False,
-            compression="gzip",
-        )
-        pd.DataFrame(columns=["chunk_id", "perturbation", "n_selected_cells"]).to_csv(
-            args.outdir / "perturbation_chunk_selection_counts.tsv.gz",
-            sep="\t",
-            index=False,
-            compression="gzip",
-        )
-        sc.AnnData(X=np.zeros((0, 0), dtype=float)).write_h5ad(
-            args.outdir / "perturbation_pseudobulk.h5ad",
-            compression="gzip",
-        )
-        meta = {
-            "h5ad": str(args.h5ad),
-            "selected_cells": str(args.selected_cells),
-            "n_selected_cells_total": 0,
-            "n_perturbations_selected": 0,
-            "n_perturbations_pseudobulk": 0,
-            "n_controls_used_for_de": 0,
-            "n_de_rows": 0,
-            "min_selected_cells": int(args.min_selected_cells),
-            "n_top_de_genes": int(args.n_top_de_genes),
-            "note": "selected-cells table was empty",
-        }
-        (args.outdir / "postprocess_meta.json").write_text(json.dumps(meta, indent=2))
-        print(f"Wrote {args.outdir / 'postprocess_meta.json'}")
+        write_empty_outputs(args, note="selected-cells table was empty")
         return
 
-    selected = selected.dropna(subset=["cell_barcode", "perturbation"])
+    require_unique(selected, ["cell_barcode"], "selected cells")
+    if selected["perturbation"].isna().any():
+        raise ValueError("Selected cells have missing perturbation labels")
     selected["cell_barcode"] = selected["cell_barcode"].astype(str)
     selected["perturbation"] = selected["perturbation"].astype(str)
 
@@ -154,20 +172,33 @@ def run_analysis(args: argparse.Namespace) -> None:
     selected = selected[selected["perturbation"].isin(set(keep_perts))].copy()
 
     if selected.empty:
-        raise RuntimeError(
-            f"No perturbations with >= {args.min_selected_cells} selected cells after Mixscape filtering"
+        write_empty_outputs(
+            args,
+            note=(
+                f"no perturbations had >= {args.min_selected_cells} selected cells "
+                "after Mixscape filtering"
+            ),
+            n_selected_cells_total=int(pert_counts["n_selected_cells"].sum()),
         )
+        return
 
     selected_map = selected.drop_duplicates(subset=["cell_barcode"]).set_index("cell_barcode")["perturbation"]
 
-    adata_backed = sc.read_h5ad(args.h5ad, backed="r")
-    obs = adata_backed.obs[[args.pert_col]].copy()
+    adata_backed, h5_handle = _open_minimal_backed_adata(args.h5ad)
+    obs = adata_backed.obs.copy()
+    if args.chunk_cells is not None:
+        labels = pd.read_csv(args.chunk_cells, sep="\t", dtype="string")
+        require_unique(labels, ["cell_barcode"], "chunk cells")
+        labels = labels.set_index("cell_barcode")["gene_target"]
+        obs[args.pert_col] = labels.reindex(obs.index).fillna("__outside_chunk__")
+    if args.pert_col not in obs:
+        raise ValueError(f"Missing perturbation column {args.pert_col!r}")
     obs.index = obs.index.astype(str)
     obs[args.pert_col] = obs[args.pert_col].astype(str)
 
     control_barcodes = obs.index[obs[args.pert_col] == args.control_label].to_numpy(dtype=str)
     if control_barcodes.size == 0:
-        adata_backed.file.close()
+        _close_backing_resources(adata_backed, h5_handle)
         raise RuntimeError(f"No control cells found for label '{args.control_label}'")
 
     if args.max_control_cells > 0 and control_barcodes.size > args.max_control_cells:
@@ -175,15 +206,17 @@ def run_analysis(args: argparse.Namespace) -> None:
 
     keep_barcodes = pd.Index(selected_map.index.tolist() + control_barcodes.tolist()).unique()
     obs_names = pd.Index(adata_backed.obs_names.astype(str))
+    require_barcodes(obs_names, keep_barcodes.tolist())
     keep_mask = obs_names.isin(keep_barcodes)
 
     if int(keep_mask.sum()) == 0:
-        adata_backed.file.close()
+        _close_backing_resources(adata_backed, h5_handle)
         raise RuntimeError("No overlap between selected/control barcodes and adata.obs_names")
 
     adata = adata_backed[keep_mask].to_memory()
-    adata_backed.file.close()
+    _close_backing_resources(adata_backed, h5_handle)
 
+    require_raw_counts(adata.X)
     adata.obs_names = adata.obs_names.astype(str)
     adata.obs = adata.obs.copy()
 
@@ -196,7 +229,7 @@ def run_analysis(args: argparse.Namespace) -> None:
 
     # Build pseudobulk matrix from selected perturbed cells only.
     adata_sel = adata[adata.obs["selected_perturbation"].notna()].copy()
-    X = adata_sel.layers["counts"] if "counts" in adata_sel.layers else adata_sel.X
+    X = adata_sel.X
 
     perts = sorted(adata_sel.obs["selected_perturbation"].astype(str).unique().tolist())
     pidx = {p: i for i, p in enumerate(perts)}
@@ -215,26 +248,21 @@ def run_analysis(args: argparse.Namespace) -> None:
     pb_obs = pd.DataFrame(pb_meta).set_index("perturbation")
     pb = sc.AnnData(X=pb_X, obs=pb_obs, var=adata_sel.var.copy())
 
-    sc.pp.normalize_total(pb)
+    sc.pp.normalize_total(pb, target_sum=10000)
     sc.pp.log1p(pb)
 
-    if pb.n_obs >= 3:
-        sc.pp.highly_variable_genes(pb, n_top_genes=min(2000, pb.n_vars), subset=False)
-        sc.pp.pca(pb)
-        sc.pp.neighbors(pb, n_neighbors=min(15, pb.n_obs - 1))
-        sc.tl.umap(pb)
-        sc.tl.leiden(pb, key_added="leiden", flavor="igraph", n_iterations=2)
-    else:
-        pb.obsm["X_umap"] = np.zeros((pb.n_obs, 2), dtype=float)
-        pb.obs["leiden"] = "0"
-
+    # Do not create an embedding per chunk.  It would place a different,
+    # usually tiny, perturbation subset in a separate coordinate system and
+    # can fail when UMAP's spectral initialisation has too few observations.
+    # The merge rule computes one dataset-level UMAP/Leiden embedding.
     umap_df = pb.obs.copy().reset_index().rename(columns={"index": "perturbation"})
-    umap_df["umap_1"] = pb.obsm["X_umap"][:, 0]
-    umap_df["umap_2"] = pb.obsm["X_umap"][:, 1]
+    umap_df["leiden"] = pd.NA
+    umap_df["umap_1"] = np.nan
+    umap_df["umap_2"] = np.nan
 
     # Differential expression for each perturbation vs controls.
     adata_de = adata.copy()
-    sc.pp.normalize_total(adata_de)
+    sc.pp.normalize_total(adata_de, target_sum=10000)
     sc.pp.log1p(adata_de)
 
     de_counts = adata_de.obs["de_group"].value_counts()
@@ -319,6 +347,7 @@ def parse_cli_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--h5ad", type=Path, required=True)
     ap.add_argument("--selected-cells", type=Path, required=True)
+    ap.add_argument("--chunk-cells", type=Path)
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--pert-col", type=str, default="gene_target")
     ap.add_argument("--control-label", type=str, default="Non-Targeting")
@@ -333,6 +362,7 @@ def args_from_snakemake(snk) -> argparse.Namespace:
     return argparse.Namespace(
         h5ad=Path(str(snk.input.h5ad)),
         selected_cells=Path(str(snk.input.selected_cells)),
+        chunk_cells=Path(str(snk.input.chunk_cells)),
         outdir=Path(str(snk.params.outdir)),
         pert_col=str(snk.params.pert_col),
         control_label=str(snk.params.control),
