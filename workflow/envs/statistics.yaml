@@ -1,0 +1,24 @@
+# Optional statistics only. These package versions are exercised by the prototype tests.
+name: xatlas_statistics
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10.17
+  - pip
+  - pip:
+      - pydeseq2==0.5.2
+      - anndata==0.11.4
+      - numpy==1.26.4
+      - pandas==2.2.3
+      - scipy==1.15.2
+      - scikit-learn==1.6.1
+      - h5py==3.8.0
+      - matplotlib==3.10.3
+      - formulaic==1.2.2
+      - formulaic-contrasts==1.0.0
+      - interface-meta==2.0.1
+      - narwhals==1.48.1
+      - session-info==1.0.1
+      - stdlib-list==0.12.0
+      - typing-extensions==4.15.0
+      - wrapt==2.2.1

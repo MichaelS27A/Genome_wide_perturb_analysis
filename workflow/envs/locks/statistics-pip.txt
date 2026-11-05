@@ -1,0 +1,7 @@
+# Add to the existing locked core environment with pip install --no-deps -r this file.
+pydeseq2==0.5.2
+formulaic==1.2.2
+formulaic-contrasts==1.0.0
+interface-meta==2.0.1
+session-info==1.0.1
+stdlib-list==0.12.0
